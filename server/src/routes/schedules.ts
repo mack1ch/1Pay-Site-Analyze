@@ -51,9 +51,13 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Укажите cron_expression' });
     }
     if (body.mode === 'crawl') {
-      const url = body.seedUrl?.trim();
-      if (!url || !/^https?:\/\//i.test(url)) {
-        return reply.code(400).send({ error: 'Для обхода укажите seedUrl' });
+      const seedUrls = Array.isArray(body.seedUrls)
+        ? body.seedUrls.filter((u) => typeof u === 'string' && /^https?:\/\//i.test(String(u).trim())).map((u) => String(u).trim())
+        : body.seedUrl?.trim() && /^https?:\/\//i.test(body.seedUrl.trim())
+          ? [body.seedUrl.trim()]
+          : [];
+      if (seedUrls.length === 0) {
+        return reply.code(400).send({ error: 'Для обхода укажите хотя бы один стартовый URL (seedUrl или seedUrls)' });
       }
     } else {
       const urls = Array.isArray(body.urls) ? body.urls : [];
@@ -62,10 +66,18 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       }
     }
     try {
+      const crawlSeedUrls =
+        body.mode === 'crawl'
+          ? (Array.isArray(body.seedUrls)
+              ? body.seedUrls.filter((u) => typeof u === 'string' && /^https?:\/\//i.test(String(u).trim())).map((u) => String(u).trim())
+              : body.seedUrl?.trim() && /^https?:\/\//i.test(body.seedUrl.trim())
+                ? [body.seedUrl.trim()]
+                : [])
+          : [];
       const schedule = await createSchedule({
         name: body.name ?? '',
         mode: body.mode,
-        seedUrl: body.mode === 'crawl' ? body.seedUrl : null,
+        seedUrls: body.mode === 'crawl' ? crawlSeedUrls : undefined,
         urls: body.mode === 'list' ? body.urls : [],
         cronExpression: body.cronExpression.trim(),
         timezone: body.timezone ?? 'UTC',

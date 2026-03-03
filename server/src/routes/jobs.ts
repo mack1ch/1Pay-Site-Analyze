@@ -17,7 +17,6 @@ export default async function jobsRoutes(app: FastifyInstance) {
     }
 
     let urls: string[] = [];
-    let seedUrl: string | undefined;
     const opts: JobOptions = body.options ?? {};
 
     if (body.mode === 'list') {
@@ -30,11 +29,18 @@ export default async function jobsRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Для режима «список» нужен хотя бы один URL' });
       }
     } else {
-      seedUrl = typeof body.seedUrl === 'string' ? body.seedUrl.trim() : undefined;
-      if (!seedUrl || !/^https?:\/\//i.test(seedUrl)) {
-        return reply.code(400).send({ error: 'Для режима обхода укажите корректный стартовый URL' });
+      const seedUrlsRaw =
+        body.seedUrls && Array.isArray(body.seedUrls)
+          ? body.seedUrls
+          : typeof body.seedUrl === 'string' && body.seedUrl.trim()
+            ? [body.seedUrl.trim()]
+            : [];
+      urls = [...new Set(seedUrlsRaw)]
+        .filter((u) => typeof u === 'string' && /^https?:\/\//i.test(String(u).trim()))
+        .map((u) => String(u).trim());
+      if (urls.length === 0) {
+        return reply.code(400).send({ error: 'Для режима обхода укажите хотя бы один стартовый URL (seedUrl или seedUrls)' });
       }
-      urls = [seedUrl];
     }
 
     const jobId = randomUUID();
@@ -44,7 +50,7 @@ export default async function jobsRoutes(app: FastifyInstance) {
     const controller = new AbortController();
     RUNNING_JOBS.set(jobId, controller);
 
-    const crawlOpts = body.mode === 'crawl' && seedUrl ? buildCrawlOptions(seedUrl, opts) : null;
+    const crawlOpts = body.mode === 'crawl' && urls.length > 0 ? buildCrawlOptions(urls, opts) : null;
 
     runJob(jobId, body.mode, urls, crawlOpts, opts, controller.signal)
       .catch((err) => {

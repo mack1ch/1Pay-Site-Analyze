@@ -98,6 +98,103 @@ export interface CrawlOptionsInput {
   excludePatterns?: string[];
 }
 
+// --- Пресеты и опции доступа (выбор из нескольких + свой параметр для каждого типа) ---
+
+export type UserAgentPreset =
+  | 'chrome_win' | 'chrome_mac' | 'chrome_linux'
+  | 'firefox_win' | 'firefox_mac' | 'firefox_linux'
+  | 'safari_mac' | 'edge_win' | 'edge_mac'
+  | 'yandex_win' | 'opera_win' | 'samsung_android'
+  | 'random';
+
+export interface UserAgentOption {
+  presets?: UserAgentPreset | UserAgentPreset[];
+  custom?: string;
+}
+
+export type AcceptLanguagePreset =
+  | 'ru_ru' | 'ru_en' | 'en_us' | 'en_gb' | 'de_de' | 'tr_tr'
+  | 'uk_ua' | 'kk_kz' | 'be_by' | 'en_ru';
+
+export interface AcceptLanguageOption {
+  preset?: AcceptLanguagePreset;
+  custom?: string;
+}
+
+export type ReferrerPolicyPreset =
+  | 'no-referrer' | 'origin' | 'strict-origin'
+  | 'strict-origin-when-cross-origin' | 'unsafe-url' | 'same-origin';
+
+export interface ReferrerPolicyOption {
+  preset?: ReferrerPolicyPreset;
+  custom?: string;
+}
+
+export type ViewportPreset =
+  | 'desktop_1920' | 'desktop_1680' | 'desktop_1536' | 'desktop_1366'
+  | 'laptop_1280' | 'laptop_1440' | 'tablet_768'
+  | 'mobile_414' | 'mobile_390' | 'mobile_360';
+
+export interface ViewportOption {
+  preset?: ViewportPreset;
+  custom?: { width: number; height: number };
+}
+
+export type LocalePreset = 'ru_RU' | 'en_US' | 'en_GB' | 'de_DE' | 'tr_TR' | 'uk_UA' | 'kk_KZ' | 'be_BY';
+
+export interface LocaleOption {
+  preset?: LocalePreset;
+  custom?: string;
+}
+
+export type TimezonePreset =
+  | 'Europe/Moscow' | 'Europe/Samara' | 'Asia/Yekaterinburg'
+  | 'Europe/Kaliningrad' | 'Asia/Novosibirsk' | 'UTC'
+  | 'Europe/London' | 'Europe/Minsk' | 'Asia/Almaty';
+
+export interface TimezoneOption {
+  preset?: TimezonePreset;
+  custom?: string;
+}
+
+export type DelayPreset = 'none' | 'low' | 'medium' | 'high' | 'random_medium' | 'random_high';
+
+export interface DelayOption {
+  preset?: DelayPreset;
+  custom?: number | { min: number; max: number };
+}
+
+/** Настройки захода на сайт: пресеты (можно несколько) + свой параметр для каждого типа. */
+export interface AccessOptions {
+  proxy?: string | string[];
+  userAgent?: string | 'random' | string[] | UserAgentOption;
+  acceptLanguage?: string | AcceptLanguageOption;
+  referrerPolicy?: ReferrerPolicyPreset | string | ReferrerPolicyOption;
+  extraHeaders?: Record<string, string>;
+  delayBetweenRequestsMs?: number | { min: number; max: number } | DelayOption;
+  viewport?: { width: number; height: number } | ViewportOption;
+  locale?: string | LocaleOption;
+  timezoneId?: string | TimezoneOption;
+  javaScriptEnabled?: boolean;
+  ignoreHTTPSErrors?: boolean;
+  stealth?: boolean;
+}
+
+export interface AccessPresetOption {
+  value: string;
+  label: string;
+}
+
+export interface AccessPresetsResponse {
+  userAgent: AccessPresetOption[];
+  acceptLanguage: AccessPresetOption[];
+  referrerPolicy: AccessPresetOption[];
+  viewport: AccessPresetOption[];
+  locale: AccessPresetOption[];
+  timezone: AccessPresetOption[];
+  delay: AccessPresetOption[];
+}
+
 export interface JobOptions {
   concurrencyFetch?: number;
   concurrencyScreenshots?: number;
@@ -111,6 +208,8 @@ export interface JobOptions {
     terms: string[];
     settings: ForbiddenSettings;
   };
+  /** Настройки захода: прокси, User-Agent, заголовки, задержки (анти-бот). */
+  access?: AccessOptions;
   concurrency?: number;
   maxConcurrentScreenshots?: number;
   fetchTimeoutMs?: number;
@@ -130,6 +229,8 @@ export async function createJob(body: {
   mode: 'list' | 'crawl';
   urls?: string[];
   seedUrl?: string;
+  /** Несколько стартовых URL для обхода (crawl). */
+  seedUrls?: string[];
   options?: JobOptions;
 }): Promise<{ jobId: string }> {
   const res = await fetch(`${API_BASE}/jobs`, {
@@ -147,6 +248,12 @@ export async function createJob(body: {
 export async function getJob(jobId: string): Promise<JobResponse> {
   const res = await fetch(`${API_BASE}/jobs/${jobId}`);
   if (!res.ok) throw new Error('Job not found');
+  return res.json();
+}
+
+export async function getAccessPresets(): Promise<AccessPresetsResponse> {
+  const res = await fetch(`${API_BASE}/access-presets`);
+  if (!res.ok) throw new Error('Не удалось загрузить пресеты');
   return res.json();
 }
 
@@ -202,6 +309,8 @@ export interface Schedule {
   name: string;
   mode: 'list' | 'crawl';
   seedUrl: string | null;
+  /** Несколько стартовых URL для обхода (crawl). */
+  seedUrls: string[];
   urls: string[];
   cronExpression: string;
   timezone: string;
@@ -223,6 +332,8 @@ export interface ScheduleCreate {
   name?: string;
   mode: 'list' | 'crawl';
   seedUrl?: string | null;
+  /** Стартовые URL для обхода (crawl). */
+  seedUrls?: string[];
   urls?: string[];
   cronExpression: string;
   timezone?: string;

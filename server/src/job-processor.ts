@@ -15,6 +15,7 @@ import {
   setJobSummary,
 } from './job-store.js';
 import { saveReportToHistory } from './db.js';
+import { delayBeforeRequest } from './access-profile.js';
 import type { ResultItem, JobOptions } from './types.js';
 import { config } from './config.js';
 
@@ -64,7 +65,9 @@ export async function runJob(
     opts.screenshot?.fullPage ?? opts.fullPageScreenshot ?? config.playwright.fullPageScreenshot;
   const useBrowserFetch = opts.useBrowserFetch === true;
   const forbiddenOpts = opts.forbidden;
+  const access = opts.access;
 
+  let requestIndex = 0;
   const fetchLimit = pLimit(concurrency);
   let screenshotPool: Awaited<ReturnType<typeof createPlaywrightPool>> | null = null;
   const screenshotLimit = pLimit(screenshotConcurrency);
@@ -81,6 +84,7 @@ export async function runJob(
         const result = await takeScreenshot(page, finalUrl, {
           fullPage: options?.fullPage ?? fullPageScreenshot,
           highlightTerms: options?.highlightTerms,
+          viewport: screenshotPool!.viewport,
         });
         await screenshotPool!.releasePage(page);
         if ('error' in result) {
@@ -98,6 +102,8 @@ export async function runJob(
 
   const processOne = async (url: string, html?: string): Promise<{ html: string } | null> => {
     if (signal?.aborted || job.cancelled) return null;
+    await delayBeforeRequest(access);
+    const idx = requestIndex++;
     const hostname = getHostnameFromURL(url);
     if (!hostname) {
       appendResult(jobId, { url, ok: false, error: 'Некорректный URL' });
@@ -133,6 +139,8 @@ export async function runJob(
               fetchHtml(url, signal, {
                 timeoutMs: fetchTimeout,
                 maxBytes: maxResponseBytes,
+                access,
+                requestIndex: idx,
               }),
             config.fetch.retries,
             signal
@@ -245,7 +253,7 @@ export async function runJob(
 
   if (screenshotEnabled || useBrowserFetch) {
     try {
-      screenshotPool = await createPlaywrightPool(screenshotConcurrency);
+      screenshotPool = await createPlaywrightPool(screenshotConcurrency, access);
     } catch (e) {
       updateJobProgress(jobId, { status: 'failed' });
       return;
@@ -262,11 +270,14 @@ export async function runJob(
       }
     } else if (mode === 'crawl' && crawlOpts) {
       if (crawlOpts.crawlMode === 'submitted_only') {
-        await fetchLimit(() => processOne(crawlOpts.seedUrl));
+        for (const url of crawlOpts.seedUrls) {
+          if (signal?.aborted || job.cancelled) break;
+          await fetchLimit(() => processOne(url));
+        }
       } else {
         const getLinks = (baseUrl: string, htmlContent: string) =>
           filterLinks(extractLinksFromHtml(htmlContent, baseUrl), baseUrl, crawlOpts);
-        const gen = crawlBfs([crawlOpts.seedUrl], getLinks, crawlOpts);
+        const gen = crawlBfs(crawlOpts.seedUrls, getLinks, crawlOpts);
         let result = gen.next();
         while (!result.done) {
           if (signal?.aborted || job.cancelled) break;
@@ -297,7 +308,7 @@ export async function runJob(
   }
 }
 
-export function buildCrawlOptions(seedUrl: string, opts: JobOptions): CrawlOptions {
+export function buildCrawlOptions(seedUrls: string[], opts: JobOptions): CrawlOptions {
   const crawlInput = opts.crawl;
   const maxPages =
     crawlInput?.maxPages ?? opts.maxPages ?? config.crawl.maxPages;
@@ -307,7 +318,7 @@ export function buildCrawlOptions(seedUrl: string, opts: JobOptions): CrawlOptio
     crawlInput?.sameHostOnly ?? opts.sameHostOnly ?? config.crawl.sameHostOnly;
   const crawlMode = crawlInput?.crawlMode ?? opts.crawlMode ?? 'crawl';
   return {
-    seedUrl,
+    seedUrls,
     maxPages: crawlMode === 'seed_only' ? 1 : maxPages,
     maxDepth: crawlMode === 'seed_only' ? 0 : maxDepth,
     sameHostOnly,

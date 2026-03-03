@@ -227,6 +227,22 @@ export async function closeDb(): Promise<void> {
 
 // --- Schedules ---
 
+/** Парсит seed_url: JSON-массив URL или один URL (для обратной совместимости). */
+function parseSeedUrls(seedUrl: unknown): string[] {
+  if (seedUrl == null || seedUrl === '') return [];
+  const s = String(seedUrl).trim();
+  if (!s) return [];
+  try {
+    const parsed = JSON.parse(s) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((u): u is string => typeof u === 'string' && /^https?:\/\//i.test(u));
+    }
+  } catch {
+    // не JSON — один URL
+  }
+  return /^https?:\/\//i.test(s) ? [s] : [];
+}
+
 function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
   const createdAt = r.created_at instanceof Date ? r.created_at.getTime() : Number(new Date(r.created_at as string));
   const updatedAt = r.updated_at instanceof Date ? r.updated_at.getTime() : Number(new Date(r.updated_at as string));
@@ -236,11 +252,13 @@ function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
   const endAt = r.end_at != null
     ? (r.end_at instanceof Date ? r.end_at.getTime() : Number(new Date(r.end_at as string)))
     : null;
+  const seedUrls = parseSeedUrls(r.seed_url);
   return {
     id: r.id as string,
     name: (r.name as string) || '',
     mode: r.mode as ScheduleRecord['mode'],
-    seedUrl: r.seed_url as string | null,
+    seedUrl: seedUrls[0] ?? null,
+    seedUrls,
     urls: Array.isArray(r.urls) ? (r.urls as string[]) : JSON.parse(String(r.urls || '[]')),
     cronExpression: r.cron_expression as string,
     timezone: (r.timezone as string) || 'UTC',
@@ -280,7 +298,10 @@ export async function getScheduleById(id: string): Promise<ScheduleRecord | null
 export interface ScheduleInsert {
   name: string;
   mode: 'list' | 'crawl';
+  /** Один URL (устаревший). Используйте seedUrls. */
   seedUrl?: string | null;
+  /** Стартовые URL для обхода (crawl). Сохраняются в seed_url как JSON-массив. */
+  seedUrls?: string[];
   urls?: string[];
   cronExpression: string;
   timezone?: string;
@@ -305,7 +326,7 @@ export async function createSchedule(input: ScheduleInsert): Promise<ScheduleRec
     [
       input.name || '',
       input.mode,
-      input.seedUrl ?? null,
+      input.seedUrls?.length ? JSON.stringify(input.seedUrls) : (input.seedUrl ?? null),
       JSON.stringify(input.urls ?? []),
       input.cronExpression,
       input.timezone ?? 'UTC',
@@ -331,7 +352,8 @@ export async function updateSchedule(id: string, input: Partial<ScheduleInsert>)
   let idx = 1;
   if (input.name !== undefined) { updates.push(`name = $${idx++}`); values.push(input.name); }
   if (input.mode !== undefined) { updates.push(`mode = $${idx++}`); values.push(input.mode); }
-  if (input.seedUrl !== undefined) { updates.push(`seed_url = $${idx++}`); values.push(input.seedUrl); }
+  if (input.seedUrls !== undefined) { updates.push(`seed_url = $${idx++}`); values.push(JSON.stringify(input.seedUrls)); }
+  else if (input.seedUrl !== undefined) { updates.push(`seed_url = $${idx++}`); values.push(input.seedUrl); }
   if (input.urls !== undefined) { updates.push(`urls = $${idx++}`); values.push(JSON.stringify(input.urls)); }
   if (input.cronExpression !== undefined) { updates.push(`cron_expression = $${idx++}`); values.push(input.cronExpression); }
   if (input.timezone !== undefined) { updates.push(`timezone = $${idx++}`); values.push(input.timezone); }

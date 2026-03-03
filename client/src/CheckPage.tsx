@@ -78,12 +78,7 @@ export default function CheckPage() {
   }, [searchParams]);
 
   const handleStart = useCallback(
-    async (
-      mode: 'list' | 'crawl',
-      urls: string[],
-      seedUrl: string | undefined,
-      options: JobOptions
-    ) => {
+    async (mode: 'list' | 'crawl', urls: string[], options: JobOptions) => {
       setError(null);
       setNotification(null);
       setSearchParams({});
@@ -99,7 +94,7 @@ export default function CheckPage() {
         const { jobId: id } = await createJob({
           mode,
           urls: mode === 'list' ? urls : undefined,
-          seedUrl: mode === 'crawl' ? seedUrl : undefined,
+          seedUrls: mode === 'crawl' ? urls : undefined,
           options: fullOptions,
         });
         setJobId(id);

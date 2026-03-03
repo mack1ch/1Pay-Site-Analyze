@@ -21,7 +21,7 @@ describe('crawler', () => {
 
   describe('filterLinks', () => {
     const opts: CrawlOptions = {
-      seedUrl: baseUrl,
+      seedUrls: [baseUrl],
       maxPages: 10,
       maxDepth: 2,
       sameHostOnly: true,
@@ -62,7 +62,7 @@ describe('crawler', () => {
         return [];
       };
       const opts: CrawlOptions = {
-        seedUrl: 'https://example.com/page',
+        seedUrls: ['https://example.com/page'],
         maxPages: 5,
         maxDepth: 2,
         sameHostOnly: true,

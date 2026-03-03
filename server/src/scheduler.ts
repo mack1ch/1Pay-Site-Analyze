@@ -32,12 +32,12 @@ export function startScheduler(): void {
       if (schedule.endAt != null && nextRun >= schedule.endAt) continue;
 
       const urls =
-        schedule.mode === 'crawl' && schedule.seedUrl
-          ? [schedule.seedUrl]
+        schedule.mode === 'crawl' && schedule.seedUrls?.length
+          ? schedule.seedUrls
           : Array.isArray(schedule.urls) && schedule.urls.length > 0
             ? schedule.urls
-            : schedule.seedUrl
-              ? [schedule.seedUrl]
+            : schedule.seedUrls?.length
+              ? schedule.seedUrls
               : [];
       if (urls.length === 0) continue;
 
@@ -46,7 +46,7 @@ export function startScheduler(): void {
       const total = schedule.mode === 'list' ? urls.length : undefined;
       const opts = getOptionsFromSchedule(schedule);
       const crawlOpts =
-        schedule.mode === 'crawl' && schedule.seedUrl ? buildCrawlOptions(schedule.seedUrl, opts) : null;
+        schedule.mode === 'crawl' && schedule.seedUrls?.length ? buildCrawlOptions(schedule.seedUrls, opts) : null;
 
       createJob(jobId, schedule.mode, total, schedule.id);
 

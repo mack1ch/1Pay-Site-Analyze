@@ -1,13 +1,24 @@
-import { fetch as undiciFetch, type Response } from 'undici';
+import { fetch as undiciFetch, ProxyAgent, type Response } from 'undici';
 import { config } from './config.js';
+import type { AccessOptions } from './types.js';
+import { buildFetchHeaders, resolveProxy } from './access-profile.js';
 
 const TIMEOUT_MS = config.fetch.timeoutMs;
 const MAX_BYTES = config.fetch.maxResponseBytes;
 
+export interface FetchHtmlOptions {
+  timeoutMs?: number;
+  maxBytes?: number;
+  /** Настройки доступа: прокси, заголовки (анти-бот). */
+  access?: AccessOptions;
+  /** Индекс запроса для ротации прокси/User-Agent. */
+  requestIndex?: number;
+}
+
 export async function fetchHtml(
   url: string,
   signal?: AbortSignal,
-  options?: { timeoutMs?: number; maxBytes?: number }
+  options?: FetchHtmlOptions
 ): Promise<{
   ok: boolean;
   html?: string;
@@ -18,6 +29,8 @@ export async function fetchHtml(
 }> {
   const timeout = options?.timeoutMs ?? TIMEOUT_MS;
   const maxBytes = options?.maxBytes ?? MAX_BYTES;
+  const requestIndex = options?.requestIndex ?? 0;
+  const access = options?.access;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   if (signal) {
@@ -25,15 +38,20 @@ export async function fetchHtml(
   }
   const abortSignal = controller.signal;
 
+  const headers = buildFetchHeaders(access, requestIndex);
+  const proxyUrl = resolveProxy(access, requestIndex);
+  const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+
   /** Коды ответа, при которых считаем, что сайт блокирует/ограничивает доступ (бот, лимиты). */
   const BLOCKED_STATUS_CODES = [401, 403, 429, 503];
 
   try {
     const res = (await undiciFetch(url, {
       redirect: 'follow',
-      headers: { 'User-Agent': 'LinkTextExtractor/1.0' },
+      headers,
       signal: abortSignal,
       body: undefined,
+      dispatcher,
     })) as Response & { url?: string };
 
     clearTimeout(timeoutId);

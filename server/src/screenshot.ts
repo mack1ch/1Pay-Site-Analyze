@@ -5,6 +5,13 @@ import { fileURLToPath } from 'url';
 import type { Browser, Page } from 'playwright';
 import sharp from 'sharp';
 import { config } from './config.js';
+import type { AccessOptions } from './types.js';
+import {
+  resolveProxy,
+  resolveUserAgent,
+  resolveViewport,
+  getResolvedAccessForBrowser,
+} from './access-profile.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORAGE_DIR = path.join(__dirname, '..', 'storage', 'screenshots');
@@ -216,15 +223,21 @@ export interface TakeScreenshotOptions {
   highlightTerms?: Array<{ term: string }>;
 }
 
+export interface TakeScreenshotOptionsWithViewport extends TakeScreenshotOptions {
+  /** Размер вьюпорта (если задан в access при создании пула). */
+  viewport?: { width: number; height: number };
+}
+
 export async function takeScreenshot(
   page: Page,
   finalUrl: string,
-  options?: TakeScreenshotOptions
+  options?: TakeScreenshotOptionsWithViewport
 ): Promise<{ filePath: string; filename: string } | { error: string }> {
   const { filePath, filename } = screenshotPathForUrl(finalUrl);
   const fullPage = options?.fullPage ?? config.playwright.fullPageScreenshot;
   const highlightTerms = options?.highlightTerms ?? [];
-  const { width: viewportWidth, height: viewportHeight } = config.playwright.viewport;
+  const viewport = options?.viewport ?? config.playwright.viewport;
+  const { width: viewportWidth, height: viewportHeight } = viewport;
 
   try {
     await page.goto(finalUrl, {
@@ -278,14 +291,92 @@ export interface PlaywrightPool {
   acquirePage(): Promise<Page>;
   releasePage(page: Page): Promise<void>;
   close(): Promise<void>;
+  /** Текущий viewport (из access или config) для передачи в takeScreenshot. */
+  viewport: { width: number; height: number };
 }
 
-export async function createPlaywrightPool(maxPages: number): Promise<PlaywrightPool> {
+function parseProxyForPlaywright(proxyUrl: string): { server: string; username?: string; password?: string } {
+  try {
+    const u = new URL(proxyUrl);
+    const server = `${u.protocol}//${u.host}`;
+    return {
+      server,
+      username: u.username || undefined,
+      password: u.password || undefined,
+    };
+  } catch {
+    return { server: proxyUrl };
+  }
+}
+
+/** Аргументы Chromium, снижающие детект автоматизации (нет AutomationControlled, инфобаров). */
+const STEALTH_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-blink-features=AutomationControlled',
+  '--no-first-run',
+  '--disable-infobars',
+  '--disable-dev-shm-usage',
+  '--disable-extensions',
+  '--disable-default-apps',
+  '--disable-background-networking',
+  '--disable-sync',
+  '--metrics-recording-only',
+  '--mute-audio',
+  '--no-default-browser-check',
+];
+
+/**
+ * Скрипт, выполняемый до загрузки страницы: маскирует navigator.webdriver и типичные переменные автоматизации.
+ * Передаётся в context.addInitScript().
+ */
+const STEALTH_INIT_SCRIPT = () => {
+  try {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => undefined,
+      configurable: true,
+      enumerable: true,
+    });
+  } catch {
+    // ignore if not configurable
+  }
+  try {
+    const w = window as unknown as { chrome?: unknown };
+    if (!w.chrome) {
+      w.chrome = { runtime: {} };
+    }
+  } catch {
+    // ignore
+  }
+  const origQuery = window.navigator.permissions?.query?.bind(navigator.permissions);
+  if (typeof origQuery === 'function') {
+    (navigator.permissions as { query: (p: PermissionDescriptor) => Promise<PermissionStatus> }).query = (
+      params: PermissionDescriptor
+    ) =>
+      params.name === 'notifications'
+        ? Promise.resolve({ state: 'prompt', onchange: null } as PermissionStatus)
+        : origQuery(params);
+  }
+};
+
+export async function createPlaywrightPool(
+  maxPages: number,
+  access?: AccessOptions
+): Promise<PlaywrightPool> {
   const { chromium } = await import('playwright');
-  const browser = await chromium.launch({
+  const useStealth = access?.stealth !== false;
+  const launchOptions: Parameters<typeof chromium.launch>[0] = {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+    args: useStealth ? STEALTH_LAUNCH_ARGS : ['--no-sandbox', '--disable-setuid-sandbox'],
+  };
+  if (process.env.USE_REAL_CHROME === '1') {
+    launchOptions.channel = 'chrome';
+  }
+  const browser = await chromium.launch(launchOptions);
+
+  const resolvedBrowser = getResolvedAccessForBrowser(access);
+  const viewport = resolveViewport(access) ?? config.playwright.viewport;
+  let contextIndex = 0;
 
   const available: Page[] = [];
   const inUse = new Set<Page>();
@@ -293,11 +384,29 @@ export async function createPlaywrightPool(maxPages: number): Promise<Playwright
   async function acquirePage(): Promise<Page> {
     let page = available.pop();
     if (!page || page.isClosed()) {
+      const idx = contextIndex++;
+      const proxyUrl = resolveProxy(access, idx);
+      const proxy = proxyUrl ? parseProxyForPlaywright(proxyUrl) : undefined;
+      const userAgent = resolveUserAgent(access, idx);
+      const extraHeaders: Record<string, string> = {};
+      if (resolvedBrowser.acceptLanguage) extraHeaders['Accept-Language'] = resolvedBrowser.acceptLanguage;
+      if (resolvedBrowser.referrerPolicy) extraHeaders['Referrer-Policy'] = resolvedBrowser.referrerPolicy;
+      if (access?.extraHeaders && typeof access.extraHeaders === 'object') {
+        Object.assign(extraHeaders, access.extraHeaders);
+      }
       const ctx = await browser.newContext({
-        viewport: config.playwright.viewport,
-        ignoreHTTPSErrors: true,
-        userAgent: 'LinkTextExtractor/1.0',
+        viewport,
+        ignoreHTTPSErrors: access?.ignoreHTTPSErrors ?? true,
+        userAgent,
+        locale: resolvedBrowser.locale,
+        timezoneId: resolvedBrowser.timezoneId,
+        javaScriptEnabled: access?.javaScriptEnabled ?? true,
+        proxy,
+        extraHTTPHeaders: Object.keys(extraHeaders).length ? extraHeaders : undefined,
       });
+      if (useStealth) {
+        await ctx.addInitScript(STEALTH_INIT_SCRIPT);
+      }
       page = await ctx.newPage();
     }
     inUse.add(page);
@@ -320,6 +429,7 @@ export async function createPlaywrightPool(maxPages: number): Promise<Playwright
     browser,
     acquirePage,
     releasePage,
+    viewport,
     async close() {
       await browser.close();
     },

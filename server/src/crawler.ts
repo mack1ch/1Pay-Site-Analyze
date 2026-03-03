@@ -3,7 +3,7 @@ import type { CrawlMode } from './types.js';
 import { normalizeUrlForCrawl, sameOrigin, toAbsoluteUrl } from './url-utils.js';
 
 export interface CrawlOptions {
-  seedUrl: string;
+  seedUrls: string[];
   maxPages: number;
   maxDepth: number;
   sameHostOnly: boolean;

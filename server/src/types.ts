@@ -39,6 +39,145 @@ export interface CrawlOptionsInput {
   excludePatterns?: string[];
 }
 
+// --- Пресеты и опции с возможностью выбора нескольких + свой параметр ---
+
+/** Пресеты User-Agent (можно выбрать несколько — ротация по запросам). */
+export type UserAgentPreset =
+  | 'chrome_win'
+  | 'chrome_mac'
+  | 'chrome_linux'
+  | 'firefox_win'
+  | 'firefox_mac'
+  | 'firefox_linux'
+  | 'safari_mac'
+  | 'edge_win'
+  | 'edge_mac'
+  | 'yandex_win'
+  | 'opera_win'
+  | 'samsung_android'
+  | 'random';
+
+/** Опция User-Agent: пресеты (один или несколько для ротации) и/или свой параметр. */
+export interface UserAgentOption {
+  presets?: UserAgentPreset | UserAgentPreset[];
+  custom?: string;
+}
+
+/** Пресеты Accept-Language. */
+export type AcceptLanguagePreset =
+  | 'ru_ru'
+  | 'ru_en'
+  | 'en_us'
+  | 'en_gb'
+  | 'de_de'
+  | 'tr_tr'
+  | 'uk_ua'
+  | 'kk_kz'
+  | 'be_by'
+  | 'en_ru';
+
+export interface AcceptLanguageOption {
+  preset?: AcceptLanguagePreset;
+  custom?: string;
+}
+
+/** Пресеты Referrer-Policy. */
+export type ReferrerPolicyPreset =
+  | 'no-referrer'
+  | 'origin'
+  | 'strict-origin'
+  | 'strict-origin-when-cross-origin'
+  | 'unsafe-url'
+  | 'same-origin';
+
+export interface ReferrerPolicyOption {
+  preset?: ReferrerPolicyPreset;
+  custom?: string;
+}
+
+/** Пресеты размера вьюпорта (ширина×высота). */
+export type ViewportPreset =
+  | 'desktop_1920'
+  | 'desktop_1680'
+  | 'desktop_1536'
+  | 'desktop_1366'
+  | 'laptop_1280'
+  | 'laptop_1440'
+  | 'tablet_768'
+  | 'mobile_414'
+  | 'mobile_390'
+  | 'mobile_360';
+
+export interface ViewportOption {
+  preset?: ViewportPreset;
+  custom?: { width: number; height: number };
+}
+
+/** Пресеты локали браузера. */
+export type LocalePreset = 'ru_RU' | 'en_US' | 'en_GB' | 'de_DE' | 'tr_TR' | 'uk_UA' | 'kk_KZ' | 'be_BY';
+
+export interface LocaleOption {
+  preset?: LocalePreset;
+  custom?: string;
+}
+
+/** Пресеты часового пояса. */
+export type TimezonePreset =
+  | 'Europe/Moscow'
+  | 'Europe/Samara'
+  | 'Asia/Yekaterinburg'
+  | 'Europe/Kaliningrad'
+  | 'Asia/Novosibirsk'
+  | 'UTC'
+  | 'Europe/London'
+  | 'Europe/Minsk'
+  | 'Asia/Almaty';
+
+export interface TimezoneOption {
+  preset?: TimezonePreset;
+  custom?: string;
+}
+
+/** Пресеты задержки (мс) между запросами — можно выбрать один или диапазон. */
+export type DelayPreset = 'none' | 'low' | 'medium' | 'high' | 'random_medium' | 'random_high';
+
+export interface DelayOption {
+  preset?: DelayPreset;
+  /** Точное значение (мс) или диапазон. */
+  custom?: number | { min: number; max: number };
+}
+
+/** Настройки захода на сайт: прокси, заголовки, задержки — чтобы снизить вероятность детекта бота. */
+export interface AccessOptions {
+  /** Прокси: один URL или список для ротации. Формат: http://host:port или http://user:pass@host:port. */
+  proxy?: string | string[];
+  /**
+   * User-Agent: пресеты (один или массив для ротации), "random", свой параметр или legacy строка/массив.
+   * При указании и presets и custom — в ротацию попадают и те и другие.
+   */
+  userAgent?: string | 'random' | string[] | UserAgentOption;
+  /** Accept-Language: пресет и/или свой заголовок. */
+  acceptLanguage?: string | AcceptLanguageOption;
+  /** Referrer-Policy: пресет и/или свой параметр. */
+  referrerPolicy?: ReferrerPolicyPreset | string | ReferrerPolicyOption;
+  /** Дополнительные HTTP-заголовки (можно добавить свои к любому типу). */
+  extraHeaders?: Record<string, string>;
+  /** Задержка: пресет или свой интервал (мс или { min, max }). */
+  delayBetweenRequestsMs?: number | { min: number; max: number } | DelayOption;
+  /** Размер окна браузера: пресет и/или свой { width, height }. */
+  viewport?: { width: number; height: number } | ViewportOption;
+  /** Локаль: пресет и/или своё значение. */
+  locale?: string | LocaleOption;
+  /** Часовой пояс: пресет и/или своё значение. */
+  timezoneId?: string | TimezoneOption;
+  /** Включить JavaScript в браузере (по умолчанию true). */
+  javaScriptEnabled?: boolean;
+  /** Игнорировать ошибки HTTPS (самоподписанные сертификаты). */
+  ignoreHTTPSErrors?: boolean;
+  /** Скрывать признаки автоматизации в браузере. По умолчанию true. */
+  stealth?: boolean;
+}
+
 export interface JobOptions {
   concurrencyFetch?: number;
   concurrencyScreenshots?: number;
@@ -49,6 +188,8 @@ export interface JobOptions {
   screenshot?: { enabled?: boolean; fullPage?: boolean };
   crawl?: CrawlOptionsInput;
   forbidden?: ForbiddenOptions;
+  /** Настройки захода: прокси, User-Agent, заголовки, задержки (анти-бот). */
+  access?: AccessOptions;
   // legacy / shortcuts
   concurrency?: number;
   maxConcurrentScreenshots?: number;
@@ -68,7 +209,10 @@ export interface JobOptions {
 export interface JobCreateBody {
   mode: JobMode;
   urls?: string[];
+  /** Один стартовый URL (устаревший, используйте seedUrls). */
   seedUrl?: string;
+  /** Несколько стартовых URL для обхода (crawl). */
+  seedUrls?: string[];
   options?: JobOptions;
 }
 
@@ -148,7 +292,9 @@ export interface ScheduleRecord {
   id: string;
   name: string;
   mode: JobMode;
+  /** Стартовые URL для обхода (crawl). Для обратной совместимости seedUrl = первый из seedUrls. */
   seedUrl: string | null;
+  seedUrls: string[];
   urls: string[];
   cronExpression: string;
   timezone: string;

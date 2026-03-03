@@ -58,7 +58,14 @@ export function SchedulesPage() {
       const body: ScheduleCreate = {
         name: v.name || '',
         mode: v.mode,
-        seedUrl: v.mode === 'crawl' ? v.seedUrl : null,
+        seedUrls:
+          v.mode === 'crawl' && v.seedUrls
+            ? v.seedUrls
+                .trim()
+                .split(/\n/)
+                .map((s: string) => s.trim())
+                .filter((u: string) => /^https?:\/\//i.test(u))
+            : undefined,
         urls: v.mode === 'list' && v.urls ? v.urls.trim().split(/\n/).map((s: string) => s.trim()).filter(Boolean) : [],
         cronExpression: v.cronExpression,
         timezone: v.timezone || 'UTC',
@@ -90,7 +97,7 @@ export function SchedulesPage() {
     form.setFieldsValue({
       name: s.name,
       mode: s.mode,
-      seedUrl: s.seedUrl || '',
+      seedUrls: Array.isArray(s.seedUrls) ? s.seedUrls.join('\n') : s.seedUrl || '',
       urls: Array.isArray(s.urls) ? s.urls.join('\n') : '',
       cronExpression: s.cronExpression,
       timezone: s.timezone || 'UTC',
@@ -135,7 +142,13 @@ export function SchedulesPage() {
       title: 'URL / сайт',
       key: 'url',
       render: (_: unknown, r: Schedule) =>
-        r.mode === 'crawl' ? (r.seedUrl || '—') : (r.urls?.length ? `${r.urls.length} URL` : '—'),
+        r.mode === 'crawl'
+          ? (r.seedUrls?.length
+              ? r.seedUrls.length === 1
+                ? r.seedUrls[0]
+                : `${r.seedUrls.length} сайтов`
+              : '—')
+          : (r.urls?.length ? `${r.urls.length} URL` : '—'),
     },
     {
       title: 'Cron',
@@ -228,8 +241,15 @@ export function SchedulesPage() {
           <Form.Item noStyle shouldUpdate={(prev, curr) => prev.mode !== curr.mode}>
             {({ getFieldValue }) =>
               getFieldValue('mode') === 'crawl' ? (
-                <Form.Item name="seedUrl" label="Стартовый URL" rules={[{ required: true, message: 'Укажите URL' }]}>
-                  <Input placeholder="https://example.com" />
+                <Form.Item
+                  name="seedUrls"
+                  label="Стартовые URL (по одному на строку)"
+                  rules={[{ required: true, message: 'Укажите хотя бы один URL' }]}
+                >
+                  <Input.TextArea
+                    rows={4}
+                    placeholder="https://example.com&#10;https://other-site.com"
+                  />
                 </Form.Item>
               ) : (
                 <Form.Item name="urls" label="URL (по одному на строку)" rules={[{ required: true, message: 'Укажите URL' }]}>
