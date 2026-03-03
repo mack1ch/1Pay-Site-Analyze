@@ -2,6 +2,7 @@ import pg from 'pg';
 import fs from 'fs';
 import cronParser from 'cron-parser';
 import type { JobRecord, ScheduleRecord, JobOptions, ForbiddenSettings } from './types.js';
+import { config } from './config.js';
 
 const { Pool } = pg;
 
@@ -77,7 +78,7 @@ export async function initDb(): Promise<boolean> {
         seed_url TEXT,
         urls JSONB NOT NULL DEFAULT '[]',
         cron_expression TEXT NOT NULL,
-        timezone TEXT NOT NULL DEFAULT 'UTC',
+        timezone TEXT NOT NULL DEFAULT 'Europe/Moscow',
         end_at TIMESTAMPTZ,
         options JSONB NOT NULL DEFAULT '{}',
         forbidden_terms JSONB NOT NULL DEFAULT '[]',
@@ -261,7 +262,7 @@ function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
     seedUrls,
     urls: Array.isArray(r.urls) ? (r.urls as string[]) : JSON.parse(String(r.urls || '[]')),
     cronExpression: r.cron_expression as string,
-    timezone: (r.timezone as string) || 'UTC',
+    timezone: (r.timezone as string) || config.defaultTimezone,
     endAt,
     options: (typeof r.options === 'object' && r.options !== null ? r.options : JSON.parse(String(r.options || '{}'))) as JobOptions,
     forbiddenTerms: Array.isArray(r.forbidden_terms) ? (r.forbidden_terms as string[]) : JSON.parse(String(r.forbidden_terms || '[]')),
@@ -329,7 +330,7 @@ export async function createSchedule(input: ScheduleInsert): Promise<ScheduleRec
       input.seedUrls?.length ? JSON.stringify(input.seedUrls) : (input.seedUrl ?? null),
       JSON.stringify(input.urls ?? []),
       input.cronExpression,
-      input.timezone ?? 'UTC',
+      input.timezone ?? config.defaultTimezone,
       input.endAt != null ? new Date(input.endAt) : null,
       JSON.stringify(input.options ?? {}),
       JSON.stringify(input.forbiddenTerms ?? []),

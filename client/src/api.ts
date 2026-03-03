@@ -164,9 +164,17 @@ export interface DelayOption {
   custom?: number | { min: number; max: number };
 }
 
+export type ProxyMode = 'none' | 'list' | 'by_country';
+
+export interface ProxyOption {
+  mode: ProxyMode;
+  list?: string | string[];
+  countries?: string[];
+}
+
 /** Настройки захода на сайт: пресеты (можно несколько) + свой параметр для каждого типа. */
 export interface AccessOptions {
-  proxy?: string | string[];
+  proxy?: string | string[] | ProxyOption;
   userAgent?: string | 'random' | string[] | UserAgentOption;
   acceptLanguage?: string | AcceptLanguageOption;
   referrerPolicy?: ReferrerPolicyPreset | string | ReferrerPolicyOption;
@@ -186,6 +194,8 @@ export interface AccessPresetOption {
 }
 
 export interface AccessPresetsResponse {
+  proxyMode: AccessPresetOption[];
+  countries: AccessPresetOption[];
   userAgent: AccessPresetOption[];
   acceptLanguage: AccessPresetOption[];
   referrerPolicy: AccessPresetOption[];

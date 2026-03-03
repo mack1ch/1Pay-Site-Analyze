@@ -8,6 +8,7 @@ import {
   getNextRunFromCron,
   type ScheduleInsert,
 } from '../db.js';
+import { config } from '../config.js';
 
 function toResponse(record: Awaited<ReturnType<typeof getScheduleById>>) {
   if (!record) return null;
@@ -80,7 +81,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
         seedUrls: body.mode === 'crawl' ? crawlSeedUrls : undefined,
         urls: body.mode === 'list' ? body.urls : [],
         cronExpression: body.cronExpression.trim(),
-        timezone: body.timezone ?? 'UTC',
+        timezone: body.timezone ?? config.defaultTimezone,
         endAt: body.endAt ?? null,
         options: body.options ?? {},
         forbiddenTerms: body.forbiddenTerms ?? [],

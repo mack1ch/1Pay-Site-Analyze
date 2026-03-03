@@ -147,10 +147,26 @@ export interface DelayOption {
   custom?: number | { min: number; max: number };
 }
 
+/** Режим прокси: без прокси, список URL вручную, или обход по странам (разные IP по странам). */
+export type ProxyMode = 'none' | 'list' | 'by_country';
+
+/** Опция прокси: режим и при list — список URL, при by_country — коды стран (ISO 3166-1 alpha-2). */
+export interface ProxyOption {
+  mode: ProxyMode;
+  /** URL прокси (при mode === 'list'). Один или несколько для ротации. */
+  list?: string | string[];
+  /** Коды стран для обхода с разных IP (при mode === 'by_country'). Прокси берутся из конфига/env по стране. */
+  countries?: string[];
+}
+
 /** Настройки захода на сайт: прокси, заголовки, задержки — чтобы снизить вероятность детекта бота. */
 export interface AccessOptions {
-  /** Прокси: один URL или список для ротации. Формат: http://host:port или http://user:pass@host:port. */
-  proxy?: string | string[];
+  /**
+   * Прокси: legacy (строка/массив URL) или опция с режимом.
+   * - list: ручной список URL (ротация).
+   * - by_country: обход с разных IP по выбранным странам (прокси из PROXY_BY_COUNTRY или конфига).
+   */
+  proxy?: string | string[] | ProxyOption;
   /**
    * User-Agent: пресеты (один или массив для ротации), "random", свой параметр или legacy строка/массив.
    * При указании и presets и custom — в ротацию попадают и те и другие.

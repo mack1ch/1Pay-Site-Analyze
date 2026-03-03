@@ -1,4 +1,8 @@
+/** Часовой пояс по умолчанию для расписаний и отображения (cron, даты). */
+export const DEFAULT_TIMEZONE = 'Europe/Moscow';
+
 export const config = {
+  defaultTimezone: DEFAULT_TIMEZONE,
   fetch: {
     timeoutMs: 25_000,
     maxRedirects: 10,

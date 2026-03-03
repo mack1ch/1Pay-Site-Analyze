@@ -70,6 +70,34 @@ const DELAY_LABELS: Record<string, string> = {
   random_high: 'Случайно 2–6 с',
 };
 
+/** Режимы прокси для выбора в UI. */
+const PROXY_MODE_OPTIONS = [
+  { value: 'none', label: 'Без прокси' },
+  { value: 'list', label: 'Список URL (вручную)' },
+  { value: 'by_country', label: 'По странам (обход с разных IP)' },
+];
+
+/** Список стран для выбора прокси по стране (ISO 3166-1 alpha-2 + подпись). */
+const COUNTRY_OPTIONS = [
+  { value: 'RU', label: 'Россия' },
+  { value: 'DE', label: 'Германия' },
+  { value: 'US', label: 'США' },
+  { value: 'NL', label: 'Нидерланды' },
+  { value: 'GB', label: 'Великобритания' },
+  { value: 'FR', label: 'Франция' },
+  { value: 'PL', label: 'Польша' },
+  { value: 'UA', label: 'Украина' },
+  { value: 'KZ', label: 'Казахстан' },
+  { value: 'BY', label: 'Беларусь' },
+  { value: 'TR', label: 'Турция' },
+  { value: 'SG', label: 'Сингапур' },
+  { value: 'IN', label: 'Индия' },
+  { value: 'BR', label: 'Бразилия' },
+  { value: 'CA', label: 'Канада' },
+  { value: 'JP', label: 'Япония' },
+  { value: 'AU', label: 'Австралия' },
+];
+
 function toOptions<T>(map: Record<string, T>, labels: Record<string, string>) {
   return Object.keys(map).map((value) => ({
     value,
@@ -80,6 +108,8 @@ function toOptions<T>(map: Record<string, T>, labels: Record<string, string>) {
 export default async function presetsRoutes(app: FastifyInstance) {
   app.get('/api/access-presets', async (_request, reply) => {
     return reply.send({
+      proxyMode: PROXY_MODE_OPTIONS,
+      countries: COUNTRY_OPTIONS,
       userAgent: toOptions({ ...USER_AGENT_PRESETS, random: 'random' }, USER_AGENT_LABELS),
       acceptLanguage: toOptions(ACCEPT_LANGUAGE_PRESETS, ACCEPT_LANGUAGE_LABELS),
       referrerPolicy: toOptions(REFERRER_POLICY_PRESETS, REFERRER_POLICY_LABELS),

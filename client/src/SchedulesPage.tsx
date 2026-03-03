@@ -18,9 +18,11 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { Schedule, ScheduleCreate } from './api';
 import { getSchedules, createSchedule, updateSchedule, deleteSchedule } from './api';
 
+/** Форматирование даты в московском времени. */
 function formatDate(ts: number | null): string {
   if (ts == null) return '—';
   return new Date(ts).toLocaleString('ru-RU', {
+    timeZone: 'Europe/Moscow',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -68,7 +70,7 @@ export function SchedulesPage() {
             : undefined,
         urls: v.mode === 'list' && v.urls ? v.urls.trim().split(/\n/).map((s: string) => s.trim()).filter(Boolean) : [],
         cronExpression: v.cronExpression,
-        timezone: v.timezone || 'UTC',
+        timezone: v.timezone || 'Europe/Moscow',
         endAt: v.endAt ? new Date(v.endAt).getTime() : null,
         forbiddenTerms: v.forbiddenTerms ? v.forbiddenTerms.trim().split(/\n/).map((s: string) => s.trim()).filter(Boolean) : [],
         telegramChatId: v.telegramChatId || null,
@@ -100,7 +102,7 @@ export function SchedulesPage() {
       seedUrls: Array.isArray(s.seedUrls) ? s.seedUrls.join('\n') : s.seedUrl || '',
       urls: Array.isArray(s.urls) ? s.urls.join('\n') : '',
       cronExpression: s.cronExpression,
-      timezone: s.timezone || 'UTC',
+      timezone: s.timezone || 'Europe/Moscow',
       endAt: s.endAt ? new Date(s.endAt).toISOString().slice(0, 16) : undefined,
       forbiddenTerms: Array.isArray(s.forbiddenTerms) ? s.forbiddenTerms.join('\n') : '',
       telegramChatId: s.telegramChatId || '',
@@ -226,7 +228,7 @@ export function SchedulesPage() {
         width={560}
         okText={editingId ? 'Сохранить' : 'Создать'}
       >
-        <Form form={form} layout="vertical" initialValues={{ mode: 'crawl', timezone: 'UTC', enabled: true }}>
+        <Form form={form} layout="vertical" initialValues={{ mode: 'crawl', timezone: 'Europe/Moscow', enabled: true }}>
           <Form.Item name="name" label="Название">
             <Input placeholder="Например: Обход example.com" />
           </Form.Item>
@@ -273,8 +275,8 @@ export function SchedulesPage() {
           <Form.Item name="timezone" label="Часовой пояс">
             <Select
               options={[
-                { value: 'UTC', label: 'UTC' },
                 { value: 'Europe/Moscow', label: 'Москва' },
+                { value: 'UTC', label: 'UTC' },
                 { value: 'Europe/Kiev', label: 'Киев' },
               ]}
             />

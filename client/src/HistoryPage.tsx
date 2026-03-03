@@ -4,8 +4,10 @@ import { Card, List, Typography, Tag, Button, Spin, Alert, Collapse } from 'antd
 import { HistoryOutlined, FileTextOutlined } from '@ant-design/icons';
 import { getHistoryDomains, getHistoryReports, type DomainHistoryItem, type StoredReportMeta } from './api';
 
+/** Форматирование даты в московском времени. */
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleString('ru-RU', {
+    timeZone: 'Europe/Moscow',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',

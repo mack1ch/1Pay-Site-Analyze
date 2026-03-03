@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Card, Tabs, Input, Select, InputNumber, Checkbox, Button, Space, Form, Tooltip, Collapse } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { parseCsvUrls } from './csv';
-import type { JobOptions, CrawlOptionsInput, AccessOptions } from './api';
+import { getAccessPresets } from './api';
+import type { JobOptions, CrawlOptionsInput, AccessOptions, AccessPresetsResponse } from './api';
 
 type InputMode = 'list' | 'crawl';
 
@@ -24,20 +25,35 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
   const [includePatterns, setIncludePatterns] = useState('');
   const [useBrowserFetch, setUseBrowserFetch] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
+  const [presets, setPresets] = useState<AccessPresetsResponse | null>(null);
+  const [proxyMode, setProxyMode] = useState<'none' | 'list' | 'by_country'>('none');
   const [proxyList, setProxyList] = useState('');
-  const [userAgentMode, setUserAgentMode] = useState<'default' | 'random' | 'custom'>('default');
+  const [proxyCountries, setProxyCountries] = useState<string[]>([]);
+  const [userAgentPreset, setUserAgentPreset] = useState<string>('');
   const [userAgentCustom, setUserAgentCustom] = useState('');
-  const [acceptLanguage, setAcceptLanguage] = useState('ru-RU,ru;q=0.9,en;q=0.8');
-  const [referrerPolicy, setReferrerPolicy] = useState<AccessOptions['referrerPolicy'] | ''>('');
+  const [acceptLanguagePreset, setAcceptLanguagePreset] = useState<string>('');
+  const [acceptLanguageCustom, setAcceptLanguageCustom] = useState('');
+  const [referrerPolicyPreset, setReferrerPolicyPreset] = useState<string>('');
+  const [referrerPolicyCustom, setReferrerPolicyCustom] = useState('');
+  const [delayPreset, setDelayPreset] = useState<string>('');
   const [delayMs, setDelayMs] = useState<number | null>(null);
   const [delayMin, setDelayMin] = useState<number | null>(null);
   const [delayMax, setDelayMax] = useState<number | null>(null);
+  const [viewportPreset, setViewportPreset] = useState<string>('');
   const [viewportWidth, setViewportWidth] = useState<number | null>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
-  const [locale, setLocale] = useState('');
-  const [timezoneId, setTimezoneId] = useState('');
+  const [localePreset, setLocalePreset] = useState<string>('');
+  const [localeCustom, setLocaleCustom] = useState('');
+  const [timezonePreset, setTimezonePreset] = useState<string>('');
+  const [timezoneCustom, setTimezoneCustom] = useState('');
   const [stealthEnabled, setStealthEnabled] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (accessOpen && !presets) {
+      getAccessPresets().then(setPresets).catch(() => setPresets(null));
+    }
+  }, [accessOpen, presets]);
 
   const urlList = (() => {
     if (csvUrlFile?.trim()) {
@@ -60,50 +76,74 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
   };
 
   const buildAccessOptions = (): AccessOptions | undefined => {
-    const proxies = proxyList
+    const proxyUrls = proxyList
       .split(/\n/)
       .map((l) => l.trim())
       .filter((l) => /^https?:\/\//i.test(l) || /^socks/i.test(l));
-    const ua =
-      userAgentMode === 'random'
-        ? 'random'
-        : userAgentMode === 'custom' && userAgentCustom.trim()
-          ? userAgentCustom.trim()
+    const hasProxyList = proxyMode === 'list' && proxyUrls.length > 0;
+    const hasProxyByCountry = proxyMode === 'by_country' && proxyCountries.length > 0;
+
+    const uaVal =
+      userAgentCustom.trim()
+        ? { presets: userAgentPreset ? [userAgentPreset] : undefined, custom: userAgentCustom.trim() }
+        : userAgentPreset
+          ? userAgentPreset === 'random'
+            ? 'random'
+            : { presets: [userAgentPreset] }
           : undefined;
-    const delay =
-      delayMs != null && delayMs > 0
-        ? delayMs
-        : delayMin != null && delayMax != null && (delayMin > 0 || delayMax > 0)
-          ? { min: Math.max(0, delayMin), max: Math.max(delayMin ?? 0, delayMax ?? 0) }
-          : undefined;
-    const viewport =
-      viewportWidth != null && viewportHeight != null && viewportWidth > 0 && viewportHeight > 0
-        ? { width: viewportWidth, height: viewportHeight }
+
+    const acceptLangVal = acceptLanguageCustom.trim()
+      ? { custom: acceptLanguageCustom.trim() }
+      : acceptLanguagePreset
+        ? { preset: acceptLanguagePreset }
         : undefined;
-    const defaultAcceptLanguage = 'ru-RU,ru;q=0.9,en;q=0.8';
-    const hasCustomAccept = acceptLanguage.trim() && acceptLanguage.trim() !== defaultAcceptLanguage;
-    if (
-      !proxies.length &&
-      !ua &&
-      !hasCustomAccept &&
-      !referrerPolicy &&
-      !delay &&
-      !viewport &&
-      !locale.trim() &&
-      !timezoneId.trim() &&
-      stealthEnabled
-    ) {
-      return undefined;
-    }
+
+    const referrerVal = referrerPolicyCustom.trim() || referrerPolicyPreset || undefined;
+
+    const delayVal =
+      delayPreset && delayPreset !== 'none'
+        ? { preset: delayPreset }
+        : delayMs != null && delayMs > 0
+          ? delayMs
+          : delayMin != null && delayMax != null && (delayMin > 0 || delayMax > 0)
+            ? { min: Math.max(0, delayMin), max: Math.max(delayMin ?? 0, delayMax ?? 0) }
+            : undefined;
+
+    const viewportVal =
+      viewportWidth != null && viewportHeight != null && viewportWidth > 0 && viewportHeight > 0
+        ? { custom: { width: viewportWidth, height: viewportHeight } }
+        : viewportPreset
+          ? { preset: viewportPreset }
+          : undefined;
+
+    const localeVal = localeCustom.trim() ? { custom: localeCustom.trim() } : localePreset ? { preset: localePreset } : undefined;
+    const timezoneVal = timezoneCustom.trim() ? { custom: timezoneCustom.trim() } : timezonePreset ? { preset: timezonePreset } : undefined;
+
+    const hasAny =
+      hasProxyList ||
+      hasProxyByCountry ||
+      !!uaVal ||
+      !!acceptLangVal ||
+      !!referrerVal ||
+      !!delayVal ||
+      !!viewportVal ||
+      !!localeVal ||
+      !!timezoneVal ||
+      !stealthEnabled;
+
+    if (!hasAny) return undefined;
+
     const access: AccessOptions = {};
-    if (proxies.length) access.proxy = proxies.length === 1 ? proxies[0] : proxies;
-    if (ua) access.userAgent = ua;
-    if (hasCustomAccept) access.acceptLanguage = acceptLanguage.trim();
-    if (referrerPolicy) access.referrerPolicy = referrerPolicy;
-    if (delay) access.delayBetweenRequestsMs = delay;
-    if (viewport) access.viewport = viewport;
-    if (locale.trim()) access.locale = locale.trim();
-    if (timezoneId.trim()) access.timezoneId = timezoneId.trim();
+    if (hasProxyList) access.proxy = { mode: 'list', list: proxyUrls.length === 1 ? proxyUrls[0] : proxyUrls };
+    else if (hasProxyByCountry) access.proxy = { mode: 'by_country', countries: proxyCountries };
+
+    if (uaVal) access.userAgent = uaVal as AccessOptions['userAgent'];
+    if (acceptLangVal) access.acceptLanguage = acceptLangVal as AccessOptions['acceptLanguage'];
+    if (referrerVal) access.referrerPolicy = referrerVal;
+    if (delayVal) access.delayBetweenRequestsMs = delayVal as AccessOptions['delayBetweenRequestsMs'];
+    if (viewportVal) access.viewport = viewportVal as AccessOptions['viewport'];
+    if (localeVal) access.locale = localeVal as AccessOptions['locale'];
+    if (timezoneVal) access.timezoneId = timezoneVal as AccessOptions['timezoneId'];
     if (!stealthEnabled) access.stealth = false;
     return access;
   };
@@ -363,91 +403,140 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
             </Form.Item>
             <Form.Item
               label={
-                <Tooltip title="Один или несколько прокси (по одному на строку). Формат: http://host:port или http://user:pass@host:port. Запросы будут распределяться по списку.">
+                <Tooltip title="Режим прокси: без прокси, ручной список URL или обход с разных IP по выбранным странам (прокси из переменной PROXY_BY_COUNTRY на сервере).">
                   <span>Прокси <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
                 </Tooltip>
               }
               style={{ marginBottom: 0 }}
             >
-              <Input.TextArea
-                placeholder="http://proxy.example.com:8080&#10;http://user:pass@proxy2:3128"
-                value={proxyList}
-                onChange={(e) => setProxyList(e.target.value)}
-                rows={2}
-                disabled={loading}
+              <Select
+                value={proxyMode}
+                onChange={setProxyMode}
+                style={{ width: 280 }}
+                options={presets?.proxyMode ?? [{ value: 'none', label: 'Без прокси' }, { value: 'list', label: 'Список URL (вручную)' }, { value: 'by_country', label: 'По странам (обход с разных IP)' }]}
               />
             </Form.Item>
+            {proxyMode === 'list' && (
+              <Form.Item label="URL прокси (по одному на строку)" style={{ marginBottom: 0 }}>
+                <Input.TextArea
+                  placeholder="http://proxy.example.com:8080&#10;http://user:pass@proxy2:3128"
+                  value={proxyList}
+                  onChange={(e) => setProxyList(e.target.value)}
+                  rows={2}
+                  disabled={loading}
+                />
+              </Form.Item>
+            )}
+            {proxyMode === 'by_country' && (
+              <Form.Item
+                label="Страны для обхода с разных IP"
+                style={{ marginBottom: 0 }}
+                extra='Прокси для каждой страны задаются в переменной PROXY_BY_COUNTRY на сервере (JSON: {"RU": "http://...", "DE": "http://..."}).'
+              >
+                <Select
+                  mode="multiple"
+                  placeholder="Выберите страны"
+                  value={proxyCountries}
+                  onChange={setProxyCountries}
+                  style={{ width: '100%', maxWidth: 400 }}
+                  options={presets?.countries ?? []}
+                  optionFilterProp="label"
+                />
+              </Form.Item>
+            )}
             <Space wrap align="start">
               <Form.Item label="User-Agent" style={{ marginBottom: 0 }}>
                 <Select
-                  value={userAgentMode}
-                  onChange={setUserAgentMode}
-                  style={{ width: 180 }}
-                  options={[
-                    { value: 'default', label: 'По умолчанию (Chrome)' },
-                    { value: 'random', label: 'Случайный (ротация)' },
-                    { value: 'custom', label: 'Свой' },
-                  ]}
+                  value={userAgentPreset || undefined}
+                  onChange={setUserAgentPreset}
+                  style={{ width: 220 }}
+                  placeholder="Выберите вариант"
+                  allowClear
+                  options={presets?.userAgent ?? []}
                 />
               </Form.Item>
-              {userAgentMode === 'custom' && (
-                <Form.Item label="Строка User-Agent" style={{ marginBottom: 0 }}>
-                  <Input
-                    placeholder="Mozilla/5.0 ..."
-                    value={userAgentCustom}
-                    onChange={(e) => setUserAgentCustom(e.target.value)}
-                    style={{ width: 320 }}
-                  />
-                </Form.Item>
-              )}
+              <Form.Item label="или свой" style={{ marginBottom: 0 }}>
+                <Input
+                  placeholder="Mozilla/5.0 ..."
+                  value={userAgentCustom}
+                  onChange={(e) => setUserAgentCustom(e.target.value)}
+                  style={{ width: 320 }}
+                />
+              </Form.Item>
             </Space>
-            <Form.Item
-              label={
-                <Tooltip title="Заголовок Accept-Language. Влияет на язык контента и меньше выдаёт бота.">
-                  <span>Accept-Language <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
-                </Tooltip>
-              }
-              style={{ marginBottom: 0 }}
-            >
-              <Input
-                value={acceptLanguage}
-                onChange={(e) => setAcceptLanguage(e.target.value)}
-                placeholder="ru-RU,ru;q=0.9,en;q=0.8"
-                style={{ width: 320 }}
-              />
-            </Form.Item>
-            <Form.Item
-              label={
-                <Tooltip title="Политика отправки Referer. no-referrer часто используют боты — для маскировки можно origin или strict-origin-when-cross-origin.">
-                  <span>Referrer-Policy <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
-                </Tooltip>
-              }
-              style={{ marginBottom: 0 }}
-            >
-              <Select
-                value={referrerPolicy || undefined}
-                onChange={(v) => setReferrerPolicy(v ?? '')}
-                style={{ width: 260 }}
-                placeholder="Не задано"
-                allowClear
-                options={[
-                  { value: 'no-referrer', label: 'no-referrer' },
-                  { value: 'origin', label: 'origin' },
-                  { value: 'strict-origin', label: 'strict-origin' },
-                  { value: 'strict-origin-when-cross-origin', label: 'strict-origin-when-cross-origin' },
-                  { value: 'unsafe-url', label: 'unsafe-url' },
-                ]}
-              />
-            </Form.Item>
             <Space wrap align="start">
               <Form.Item
                 label={
-                  <Tooltip title="Пауза между запросами (мс). Снижает вероятность блокировки по частоте.">
-                    <span>Задержка (мс) <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
+                  <Tooltip title="Заголовок Accept-Language.">
+                    <span>Accept-Language <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
                   </Tooltip>
                 }
                 style={{ marginBottom: 0 }}
               >
+                <Select
+                  value={acceptLanguagePreset || undefined}
+                  onChange={setAcceptLanguagePreset}
+                  style={{ width: 220 }}
+                  placeholder="Выберите вариант"
+                  allowClear
+                  options={presets?.acceptLanguage ?? []}
+                />
+              </Form.Item>
+              <Form.Item label="или свой" style={{ marginBottom: 0 }}>
+                <Input
+                  placeholder="ru-RU,ru;q=0.9,en;q=0.8"
+                  value={acceptLanguageCustom}
+                  onChange={(e) => setAcceptLanguageCustom(e.target.value)}
+                  style={{ width: 260 }}
+                />
+              </Form.Item>
+            </Space>
+            <Space wrap align="start">
+              <Form.Item
+                label={
+                  <Tooltip title="Политика Referer.">
+                    <span>Referrer-Policy <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
+                  </Tooltip>
+                }
+                style={{ marginBottom: 0 }}
+              >
+                <Select
+                  value={referrerPolicyPreset || undefined}
+                  onChange={setReferrerPolicyPreset}
+                  style={{ width: 280 }}
+                  placeholder="Не задано"
+                  allowClear
+                  options={presets?.referrerPolicy ?? []}
+                />
+              </Form.Item>
+              <Form.Item label="или свой" style={{ marginBottom: 0 }}>
+                <Input
+                  placeholder="no-referrer, origin, ..."
+                  value={referrerPolicyCustom}
+                  onChange={(e) => setReferrerPolicyCustom(e.target.value)}
+                  style={{ width: 180 }}
+                />
+              </Form.Item>
+            </Space>
+            <Space wrap align="start">
+              <Form.Item
+                label={
+                  <Tooltip title="Пауза между запросами (мс).">
+                    <span>Задержка <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
+                  </Tooltip>
+                }
+                style={{ marginBottom: 0 }}
+              >
+                <Select
+                  value={delayPreset || undefined}
+                  onChange={setDelayPreset}
+                  style={{ width: 220 }}
+                  placeholder="Выберите вариант"
+                  allowClear
+                  options={presets?.delay ?? []}
+                />
+              </Form.Item>
+              <Form.Item label="или своё (мс)" style={{ marginBottom: 0 }}>
                 <InputNumber
                   min={0}
                   placeholder="Одна величина"
@@ -456,32 +545,32 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
                   style={{ width: 100 }}
                 />
               </Form.Item>
-              <Form.Item label="или мин" style={{ marginBottom: 0 }}>
-                <InputNumber
-                  min={0}
-                  value={delayMin ?? undefined}
-                  onChange={(v) => setDelayMin(v ?? null)}
-                  style={{ width: 80 }}
-                />
+              <Form.Item label="мин" style={{ marginBottom: 0 }}>
+                <InputNumber min={0} value={delayMin ?? undefined} onChange={(v) => setDelayMin(v ?? null)} style={{ width: 70 }} />
               </Form.Item>
-              <Form.Item label="макс (мс)" style={{ marginBottom: 0 }}>
-                <InputNumber
-                  min={0}
-                  value={delayMax ?? undefined}
-                  onChange={(v) => setDelayMax(v ?? null)}
-                  style={{ width: 80 }}
-                />
+              <Form.Item label="макс" style={{ marginBottom: 0 }}>
+                <InputNumber min={0} value={delayMax ?? undefined} onChange={(v) => setDelayMax(v ?? null)} style={{ width: 70 }} />
               </Form.Item>
             </Space>
             <Space wrap align="start">
               <Form.Item
                 label={
-                  <Tooltip title="Размер окна браузера (для скриншотов и загрузки через браузер).">
+                  <Tooltip title="Размер окна браузера.">
                     <span>Вьюпорт <QuestionCircleOutlined style={{ marginLeft: 4 }} /></span>
                   </Tooltip>
                 }
                 style={{ marginBottom: 0 }}
               >
+                <Select
+                  value={viewportPreset || undefined}
+                  onChange={setViewportPreset}
+                  style={{ width: 160 }}
+                  placeholder="Выберите вариант"
+                  allowClear
+                  options={presets?.viewport ?? []}
+                />
+              </Form.Item>
+              <Form.Item label="или свой" style={{ marginBottom: 0 }}>
                 <Space>
                   <InputNumber
                     min={320}
@@ -501,20 +590,30 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
                 </Space>
               </Form.Item>
               <Form.Item label="Локаль" style={{ marginBottom: 0 }}>
-                <Input
-                  placeholder="ru-RU"
-                  value={locale}
-                  onChange={(e) => setLocale(e.target.value)}
-                  style={{ width: 100 }}
+                <Select
+                  value={localePreset || undefined}
+                  onChange={setLocalePreset}
+                  style={{ width: 120 }}
+                  placeholder="Выберите"
+                  allowClear
+                  options={presets?.locale ?? []}
                 />
               </Form.Item>
+              <Form.Item label="или свой" style={{ marginBottom: 0 }}>
+                <Input placeholder="ru-RU" value={localeCustom} onChange={(e) => setLocaleCustom(e.target.value)} style={{ width: 100 }} />
+              </Form.Item>
               <Form.Item label="Часовой пояс" style={{ marginBottom: 0 }}>
-                <Input
-                  placeholder="Europe/Moscow"
-                  value={timezoneId}
-                  onChange={(e) => setTimezoneId(e.target.value)}
-                  style={{ width: 140 }}
+                <Select
+                  value={timezonePreset || undefined}
+                  onChange={setTimezonePreset}
+                  style={{ width: 180 }}
+                  placeholder="Выберите"
+                  allowClear
+                  options={presets?.timezone ?? []}
                 />
+              </Form.Item>
+              <Form.Item label="или свой" style={{ marginBottom: 0 }}>
+                <Input placeholder="Europe/Moscow" value={timezoneCustom} onChange={(e) => setTimezoneCustom(e.target.value)} style={{ width: 140 }} />
               </Form.Item>
             </Space>
           </Space>

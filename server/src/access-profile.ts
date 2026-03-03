@@ -14,6 +14,7 @@ import type {
   LocaleOption,
   TimezoneOption,
   DelayOption,
+  ProxyOption,
 } from './types.js';
 
 // --- Карты пресетов (можно использовать для UI и для разрешения) ---
@@ -122,6 +123,54 @@ function ensureArray<T>(v: T | T[] | undefined): T[] {
   return Array.isArray(v) ? v : [v];
 }
 
+/** Прокси по странам: из env PROXY_BY_COUNTRY (JSON {"RU":"http://...", "DE":"http://..."}) или пустой объект. */
+function getProxyByCountryConfig(): Record<string, string | string[]> {
+  try {
+    const raw = process.env.PROXY_BY_COUNTRY;
+    if (!raw?.trim()) return {};
+    const parsed = JSON.parse(raw) as Record<string, string | string[]>;
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+/** Возвращает список URL прокси для ротации: из legacy, ProxyOption.list или ProxyOption.by_country. */
+function getProxyList(access: AccessOptions | undefined): string[] {
+  const raw = access?.proxy;
+  if (raw == null) return [];
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    return /^https?:\/\//i.test(s) || /^socks/i.test(s) ? [s] : [];
+  }
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((u): u is string => typeof u === 'string')
+      .map((u) => u.trim())
+      .filter((u) => /^https?:\/\//i.test(u) || /^socks/i.test(u));
+  }
+  const opt = raw as ProxyOption;
+  if (opt.mode === 'none') return [];
+  if (opt.mode === 'list' && opt.list != null) {
+    const list = ensureArray(opt.list).filter((u): u is string => typeof u === 'string');
+    return list.map((u) => u.trim()).filter((u) => /^https?:\/\//i.test(u) || /^socks/i.test(u));
+  }
+  if (opt.mode === 'by_country' && opt.countries?.length) {
+    const byCountry = getProxyByCountryConfig();
+    const out: string[] = [];
+    for (const code of opt.countries) {
+      const key = String(code).toUpperCase().trim();
+      const urls = byCountry[key];
+      if (urls == null) continue;
+      if (typeof urls === 'string') out.push(urls.trim());
+      else if (Array.isArray(urls)) out.push(...urls.filter((u) => typeof u === 'string').map((u) => u.trim()));
+    }
+    return out.filter((u) => /^https?:\/\//i.test(u) || /^socks/i.test(u));
+  }
+  return [];
+}
+
 function resolveUserAgentOption(opt: UserAgentOption, requestIndex: number): string[] {
   const list: string[] = [];
   const presets = ensureArray(opt.presets).filter(
@@ -156,10 +205,8 @@ function getUserAgentList(access: AccessOptions | undefined): string[] {
 
 /** Возвращает прокси для запроса: один из списка по индексу (ротация) или единственный. */
 export function resolveProxy(access: AccessOptions | undefined, requestIndex: number): string | undefined {
-  const proxy = access?.proxy;
-  if (!proxy) return undefined;
-  const list = ensureArray(proxy);
-  if (!list?.length) return undefined;
+  const list = getProxyList(access);
+  if (!list.length) return undefined;
   const raw = list[requestIndex % list.length];
   const s = typeof raw === 'string' ? raw.trim() : '';
   return s || undefined;
