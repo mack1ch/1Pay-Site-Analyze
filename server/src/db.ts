@@ -6,15 +6,37 @@ const { Pool } = pg;
 
 let pool: pg.Pool | null = null;
 
+import pg from 'pg';
+import fs from 'fs';
+import cronParser from 'cron-parser';
+import type { JobRecord, ScheduleRecord, JobOptions, ForbiddenSettings } from './types.js';
+
+const { Pool } = pg;
+
+let pool: pg.Pool | null = null;
+
 function getPool(): pg.Pool | null {
   if (pool) return pool;
   const url = process.env.DATABASE_URL;
   if (!url || url.trim() === '') return null;
-  pool = new Pool({
+  const config: pg.PoolConfig = {
     connectionString: url,
     max: 5,
     idleTimeoutMillis: 30000,
-  });
+  };
+  // Selectel и другие облачные БД: поддержка verify-ca через CA-сертификат
+  const caPath = process.env.DATABASE_SSL_CA_PATH;
+  if (caPath) {
+    try {
+      config.ssl = {
+        rejectUnauthorized: true,
+        ca: fs.readFileSync(caPath).toString(),
+      };
+    } catch (e) {
+      console.error('[db] DATABASE_SSL_CA_PATH read failed:', e);
+    }
+  }
+  pool = new Pool(config);
   return pool;
 }
 
