@@ -44,6 +44,8 @@ export interface JobOptions {
   concurrencyScreenshots?: number;
   maxChars?: number;
   maxResponseBytes?: number;
+  /** Загружать страницы через браузер (Playwright) для сайтов с JS-контентом (SPA). */
+  useBrowserFetch?: boolean;
   screenshot?: { enabled?: boolean; fullPage?: boolean };
   crawl?: CrawlOptionsInput;
   forbidden?: ForbiddenOptions;

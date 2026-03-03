@@ -76,6 +76,7 @@ cd sitechecker
 Кластер (пример): **52cdf1c0-dabf-4a66-90cb-1d30c24db178**
 
 В панели Selectel возьми:
+
 - **Хост** — что-то вроде `master.52cdf1c0-dabf-4a66-90cb-1d30c24db178.c.dbaas.selcloud.ru`
 - **Порт** — 5432
 - **Имя БД** — `onepayment_site_analyze`
@@ -93,36 +94,16 @@ postgresql://<user>:<password>@<host>:5432/onepayment_site_analyze?sslmode=requi
 
 ### Вариант B: SSL с verify-ca (как рекомендует Selectel)
 
-**Установка CA-сертификата Selectel**
-
-Для подключения через `psql` с хоста (в домашней папке):
-
-```bash
-mkdir -p ~/.postgresql/
-wget https://storage.dbaas.selcloud.ru/CA.pem -O ~/.postgresql/root.crt
-chmod 0600 ~/.postgresql/root.crt
-```
-
-Для приложения в Docker — положи сертификат в каталог проекта и смонтируй в контейнер:
-
-```bash
-mkdir -p ~/sitechecker/certs
-wget https://storage.dbaas.selcloud.ru/CA.pem -O ~/sitechecker/certs/root.crt
-chmod 0600 ~/sitechecker/certs/root.crt
-```
-
-В `docker-compose.yml` в секции `volumes` сервиса `app` добавь:
-
-```yaml
-- ./certs:/app/certs:ro
-```
-
-В `.env`:
+1. Скачай CA-сертификат Selectel (в панели БД обычно есть ссылка или инструкция).
+2. Сохрани его на сервере, например: `/var/www/sitechecker/certs/selectel-ca.pem`.
+3. В `.env` добавь:
 
 ```
 DATABASE_URL=postgresql://<user>:<password>@<host>:5432/onepayment_site_analyze?sslmode=verify-ca
-DATABASE_SSL_CA_PATH=/app/certs/root.crt
+DATABASE_SSL_CA_PATH=/app/certs/selectel-ca.pem
 ```
+
+В `docker-compose.yml` нужно смонтировать каталог с сертификатом (см. ниже).
 
 Проверка подключения с сервера (для verify-ca нужен путь к CA):
 
@@ -264,15 +245,15 @@ docker compose up -d --build
 
 ## Краткий чеклист
 
-| Шаг | Где | Действие |
-|-----|-----|----------|
-| 1 | Локально | `git push origin main` (или master) |
-| 2 | Сервер | Установить Docker, Nginx, certbot |
-| 3 | Сервер | Клонировать репозиторий в `/var/www/sitechecker` |
-| 4 | Сервер | Создать `.env` с `DATABASE_URL` (Selectel), `BASE_URL` |
-| 5 | Сервер | При verify-ca: положить CA в `certs/`, добавить volume в docker-compose |
-| 6 | Сервер | `docker compose up -d --build` |
-| 7 | Сервер | Nginx: конфиг для sitechecker.paymentgames.ru, `certbot --nginx` |
-| 8 | Браузер | Открыть https://sitechecker.paymentgames.ru и проверить /api/health |
+| Шаг | Где      | Действие                                                                |
+| --- | -------- | ----------------------------------------------------------------------- |
+| 1   | Локально | `git push origin main` (или master)                                     |
+| 2   | Сервер   | Установить Docker, Nginx, certbot                                       |
+| 3   | Сервер   | Клонировать репозиторий в `/var/www/sitechecker`                        |
+| 4   | Сервер   | Создать `.env` с `DATABASE_URL` (Selectel), `BASE_URL`                  |
+| 5   | Сервер   | При verify-ca: положить CA в `certs/`, добавить volume в docker-compose |
+| 6   | Сервер   | `docker compose up -d --build`                                          |
+| 7   | Сервер   | Nginx: конфиг для sitechecker.paymentgames.ru, `certbot --nginx`        |
+| 8   | Браузер  | Открыть https://sitechecker.paymentgames.ru и проверить /api/health     |
 
 После этого приложение развёрнуто, история проверок и расписания работают через БД **onepayment_site_analyze** на Selectel.

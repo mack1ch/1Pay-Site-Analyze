@@ -103,6 +103,8 @@ export interface JobOptions {
   concurrencyScreenshots?: number;
   maxChars?: number;
   maxResponseBytes?: number;
+  /** Загружать страницы через браузер (для SPA / JS-контента, напр. plati.market). */
+  useBrowserFetch?: boolean;
   screenshot?: { enabled?: boolean; fullPage?: boolean };
   crawl?: CrawlOptionsInput;
   forbidden?: {

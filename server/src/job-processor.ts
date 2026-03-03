@@ -1,6 +1,7 @@
 import pLimit from 'p-limit';
 import { getHostnameFromURL, resolveAndCheckSSRF } from './ssrf.js';
 import { fetchHtml } from './fetch-html.js';
+import { fetchHtmlWithBrowser } from './fetch-html-browser.js';
 import { fetchSSLCertDates } from './ssl-cert.js';
 import { extractReadableText } from './extract-text.js';
 import { createPlaywrightPool, takeScreenshot } from './screenshot.js';
@@ -61,6 +62,7 @@ export async function runJob(
   const screenshotEnabled = opts.screenshot?.enabled !== false;
   const fullPageScreenshot =
     opts.screenshot?.fullPage ?? opts.fullPageScreenshot ?? config.playwright.fullPageScreenshot;
+  const useBrowserFetch = opts.useBrowserFetch === true;
   const forbiddenOpts = opts.forbidden;
 
   const fetchLimit = pLimit(concurrency);
@@ -114,17 +116,29 @@ export async function runJob(
     let finalUrl = url;
 
     if (!fetched) {
-      const res = await fetchLimit(() =>
-        withRetry(
-          () =>
-            fetchHtml(url, signal, {
-              timeoutMs: fetchTimeout,
-              maxBytes: maxResponseBytes,
-            }),
-          config.fetch.retries,
-          signal
-        )
-      );
+      let res: Awaited<ReturnType<typeof fetchHtml>>;
+      if (useBrowserFetch && screenshotPool) {
+        res = await fetchLimit(async () => {
+          const page = await screenshotPool!.acquirePage();
+          try {
+            return await fetchHtmlWithBrowser(page, url, { timeoutMs: playwrightTimeout });
+          } finally {
+            await screenshotPool!.releasePage(page);
+          }
+        });
+      } else {
+        res = await fetchLimit(() =>
+          withRetry(
+            () =>
+              fetchHtml(url, signal, {
+                timeoutMs: fetchTimeout,
+                maxBytes: maxResponseBytes,
+              }),
+            config.fetch.retries,
+            signal
+          )
+        );
+      }
       if (signal?.aborted || job.cancelled) return null;
       if (!res.ok) {
         const blockedBySite = [401, 403, 429, 503].includes(res.statusCode ?? 0);
@@ -229,7 +243,7 @@ export async function runJob(
     return { html: fetched };
   };
 
-  if (screenshotEnabled) {
+  if (screenshotEnabled || useBrowserFetch) {
     try {
       screenshotPool = await createPlaywrightPool(screenshotConcurrency);
     } catch (e) {

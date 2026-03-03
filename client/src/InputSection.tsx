@@ -27,6 +27,7 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
   const [sameHostOnly, setSameHostOnly] = useState(true);
   const [excludePatterns, setExcludePatterns] = useState('');
   const [includePatterns, setIncludePatterns] = useState('');
+  const [useBrowserFetch, setUseBrowserFetch] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const urlList = (() => {
@@ -55,6 +56,7 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
       concurrencyScreenshots: 2,
       maxChars: 300_000,
       maxResponseBytes: 10_000_000,
+      useBrowserFetch,
       screenshot: { enabled: true, fullPage: true },
       crawl:
         inputMode === 'crawl'
@@ -253,7 +255,22 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
         onChange={(k) => setInputMode(k as InputMode)}
         items={tabItems}
       />
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 16, marginBottom: 12 }}>
+        <Space wrap align="center">
+          <Checkbox
+            checked={useBrowserFetch}
+            onChange={(e) => setUseBrowserFetch(e.target.checked)}
+            disabled={loading}
+          >
+            <Tooltip title="Включать для сайтов, где контент подгружается через JavaScript (SPA): страница открывается в браузере, после отрисовки извлекается весь текст. Подходит для plati.market и подобных.">
+              <span>
+                Загружать через браузер <QuestionCircleOutlined style={{ marginLeft: 4, color: 'var(--ant-color-text-tertiary)' }} />
+              </span>
+            </Tooltip>
+          </Checkbox>
+        </Space>
+      </div>
+      <div style={{ marginTop: 0 }}>
         <Button
           type="primary"
           size="large"

@@ -13,8 +13,8 @@ services:
       - PORT=${PORT:-3000}
     env_file: .env
     volumes:
-      - screenshots:/app/server/storage/screenshots
       - ./certs:/app/certs:ro
+      - screenshots:/app/server/storage/screenshots
     restart: unless-stopped
 
 volumes:
