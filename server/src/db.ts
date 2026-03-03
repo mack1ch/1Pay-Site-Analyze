@@ -28,7 +28,16 @@ function getPool(): pg.Pool | null {
       console.error('[db] DATABASE_SSL_CA_PATH read failed:', e);
     }
   } else {
-    // Подключение по IP с sslmode=require: шифрование без проверки сертификата (нет CA в контейнере)
+    // Подключение по IP: шифрование без проверки сертификата. Убираем sslmode из URL,
+    // иначе pg трактует require как verify-full и переопределяет наш ssl.
+    try {
+      const u = new URL(url);
+      u.searchParams.delete('sslmode');
+      u.searchParams.delete('uselibpqcompat');
+      config.connectionString = u.toString();
+    } catch {
+      // оставляем url как есть
+    }
     config.ssl = { rejectUnauthorized: false };
   }
   pool = new Pool(config);
