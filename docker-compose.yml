@@ -1,0 +1,16 @@
+# Production: создайте .env из .env.example (или touch .env для минимального запуска).
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    env_file: .env
+    volumes:
+      - screenshots:/app/server/storage/screenshots
+    restart: unless-stopped
+
+volumes:
+  screenshots:

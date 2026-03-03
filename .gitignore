@@ -1,0 +1,13 @@
+node_modules
+dist
+.server
+*.log
+.env
+.env.local
+.DS_Store
+coverage
+*.tsbuildinfo
+server/storage/screenshots/*
+!server/storage/screenshots/.gitkeep
+playwright-report
+test-results
