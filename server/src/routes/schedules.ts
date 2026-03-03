@@ -6,9 +6,11 @@ import {
   updateSchedule,
   deleteSchedule,
   getNextRunFromCron,
+  getScheduleRunLog,
   type ScheduleInsert,
 } from '../db.js';
 import { config } from '../config.js';
+import { sendTelegramScheduleConfirmation } from '../telegram.js';
 
 function toResponse(record: Awaited<ReturnType<typeof getScheduleById>>) {
   if (!record) return null;
@@ -26,21 +28,25 @@ function toResponse(record: Awaited<ReturnType<typeof getScheduleById>>) {
 export default async function scheduleRoutes(app: FastifyInstance) {
   app.get('/api/schedules', async (_request, reply) => {
     const list = await getSchedules(false);
-    const withNext = list.map((s) => ({
-      ...s,
-      nextRunAt: getNextRunFromCron(
-        s.cronExpression,
-        s.timezone,
-        s.lastRunAt ? new Date(s.lastRunAt) : undefined
-      ),
-    }));
+    const withNext = await Promise.all(
+      list.map(async (s) => ({
+        ...s,
+        nextRunAt: getNextRunFromCron(
+          s.cronExpression,
+          s.timezone,
+          s.lastRunAt ? new Date(s.lastRunAt) : undefined
+        ),
+        runLog: await getScheduleRunLog(s.id, 10),
+      }))
+    );
     return reply.send({ schedules: withNext });
   });
 
   app.get<{ Params: { id: string } }>('/api/schedules/:id', async (request, reply) => {
     const schedule = await getScheduleById(request.params.id);
     if (!schedule) return reply.code(404).send({ error: 'Расписание не найдено' });
-    return reply.send(toResponse(schedule));
+    const runLog = await getScheduleRunLog(schedule.id, 20);
+    return reply.send({ ...toResponse(schedule), runLog });
   });
 
   app.post<{ Body: ScheduleInsert }>('/api/schedules', async (request, reply) => {
@@ -90,6 +96,9 @@ export default async function scheduleRoutes(app: FastifyInstance) {
         telegramBotToken: body.telegramBotToken ?? null,
         enabled: body.enabled !== false,
       });
+      sendTelegramScheduleConfirmation(schedule, { isUpdate: false }).catch((err) =>
+        console.warn('[schedules] confirmation telegram failed:', err)
+      );
       return reply.code(201).send(toResponse(schedule));
     } catch (e) {
       return reply.code(500).send({ error: (e as Error).message });
@@ -99,6 +108,9 @@ export default async function scheduleRoutes(app: FastifyInstance) {
   app.put<{ Params: { id: string }; Body: Partial<ScheduleInsert> }>('/api/schedules/:id', async (request, reply) => {
     const updated = await updateSchedule(request.params.id, request.body);
     if (!updated) return reply.code(404).send({ error: 'Расписание не найдено' });
+    sendTelegramScheduleConfirmation(updated, { isUpdate: true }).catch((err) =>
+      console.warn('[schedules] confirmation telegram failed:', err)
+    );
     return reply.send(toResponse(updated));
   });
 

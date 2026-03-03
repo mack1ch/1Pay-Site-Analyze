@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, List, Typography, Tag, Button, Spin, Alert, Collapse } from 'antd';
-import { HistoryOutlined, FileTextOutlined } from '@ant-design/icons';
-import { getHistoryDomains, getHistoryReports, type DomainHistoryItem, type StoredReportMeta } from './api';
+import { HistoryOutlined, FileTextOutlined, SyncOutlined } from '@ant-design/icons';
+import { getHistoryDomains, getHistoryReports, getSchedules, type DomainHistoryItem, type StoredReportMeta } from './api';
 
 /** Форматирование даты в московском времени. */
 function formatDate(ts: number): string {
@@ -19,6 +19,7 @@ function formatDate(ts: number): string {
 export function HistoryPage() {
   const navigate = useNavigate();
   const [domains, setDomains] = useState<DomainHistoryItem[]>([]);
+  const [runningJobs, setRunningJobs] = useState<Array<{ scheduleName: string; jobId: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reportsByDomain, setReportsByDomain] = useState<Record<string, StoredReportMeta[]>>({});
@@ -26,9 +27,15 @@ export function HistoryPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getHistoryDomains()
-      .then(({ domains: list }) => {
-        if (!cancelled) setDomains(list);
+    Promise.all([getHistoryDomains(), getSchedules()])
+      .then(([{ domains: list }, { schedules }]) => {
+        if (!cancelled) {
+          setDomains(list);
+          const running = schedules
+            .filter((s) => s.runningJobId)
+            .map((s) => ({ scheduleName: s.name || 'Без названия', jobId: s.runningJobId! }));
+          setRunningJobs(running);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError((e as Error).message);
@@ -54,6 +61,15 @@ export function HistoryPage() {
   const openReport = (jobId: string) => {
     navigate(`/?jobId=${encodeURIComponent(jobId)}`);
   };
+
+  /** Строка лога для отчёта: началась — завершена. */
+  function reportLogLine(r: StoredReportMeta): string {
+    const start = formatDate(r.createdAt);
+    if (r.finishedAt != null) {
+      return `Проверка началась ${start}, завершена ${formatDate(r.finishedAt)}`;
+    }
+    return `Проверка началась ${start}, в процессе…`;
+  }
 
   const onCollapseChange = (keys: string | string[]) => {
     const arr = Array.isArray(keys) ? keys : [keys];
@@ -141,19 +157,23 @@ export function HistoryPage() {
                     <span>
                       {formatDate(r.createdAt)}
                       <Tag style={{ marginLeft: 8 }}>{r.mode === 'crawl' ? 'Обход' : 'Список'}</Tag>
+                      {r.finishedAt == null && <Tag color="processing" icon={<SyncOutlined spin />}>В процессе</Tag>}
                     </span>
                   }
                   description={
-                    r.summary && (
-                      <>
-                        Страниц: {r.summary.pagesProcessed ?? '—'}
-                        {r.summary.pagesWithViolations != null && (
-                          <span style={{ marginLeft: 12 }}>
-                            С нарушениями: <Tag color="orange">{r.summary.pagesWithViolations}</Tag>
-                          </span>
-                        )}
-                      </>
-                    )
+                    <>
+                      <div style={{ marginBottom: 4 }}>{reportLogLine(r)}</div>
+                      {r.summary && (
+                        <>
+                          Страниц: {r.summary.pagesProcessed ?? '—'}
+                          {r.summary.pagesWithViolations != null && (
+                            <span style={{ marginLeft: 12 }}>
+                              С нарушениями: <Tag color="orange">{r.summary.pagesWithViolations}</Tag>
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </>
                   }
                 />
               </List.Item>
@@ -169,6 +189,29 @@ export function HistoryPage() {
       <Typography.Paragraph type="secondary">
         Сайты, по которым уже были проведены проверки, и сохранённые отчёты. Данные хранятся в PostgreSQL.
       </Typography.Paragraph>
+      {runningJobs.length > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<SyncOutlined spin />}
+          message="Сейчас выполняется"
+          description={
+            <List
+              size="small"
+              dataSource={runningJobs}
+              renderItem={({ scheduleName, jobId }) => (
+                <List.Item>
+                  <span>{scheduleName}</span>
+                  <Button type="link" size="small" onClick={() => openReport(jobId)}>
+                    Открыть отчёт
+                  </Button>
+                </List.Item>
+              )}
+            />
+          }
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <Collapse items={collapseItems} onChange={onCollapseChange} />
     </Card>
   );

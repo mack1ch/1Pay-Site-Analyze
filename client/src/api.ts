@@ -297,6 +297,7 @@ export interface DomainHistoryItem {
 export interface StoredReportMeta {
   jobId: string;
   createdAt: number;
+  finishedAt: number | null;
   mode: string;
   summary: { pagesProcessed?: number; pagesWithViolations?: number } | null;
 }
@@ -335,7 +336,19 @@ export interface Schedule {
   updatedAt: number;
   lastRunAt: number | null;
   lastJobId: string | null;
+  /** Текущая выполняющаяся проверка (если есть). */
+  runningJobId?: string | null;
   nextRunAt: number | null;
+  /** Лог запусков: началась / закончилась проверка. */
+  runLog?: ScheduleRunLogEntry[];
+}
+
+export interface ScheduleRunLogEntry {
+  id: string;
+  scheduleId: string;
+  jobId: string;
+  event: 'started' | 'finished' | 'failed';
+  createdAt: number;
 }
 
 export interface ScheduleCreate {

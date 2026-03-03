@@ -325,4 +325,6 @@ export interface ScheduleRecord {
   updatedAt: number;
   lastRunAt: number | null;
   lastJobId: string | null;
+  /** Текущая выполняющаяся проверка (заполняется при старте, очищается при завершении). */
+  runningJobId: string | null;
 }

@@ -53,12 +53,16 @@ export async function initDb(): Promise<boolean> {
       CREATE TABLE IF NOT EXISTS check_reports (
         id UUID PRIMARY KEY,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMPTZ,
         mode TEXT NOT NULL,
         progress JSONB NOT NULL DEFAULT '{}',
         summary JSONB,
         results JSONB NOT NULL DEFAULT '[]'
       );
     `);
+    await p.query(`
+      ALTER TABLE check_reports ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;
+    `).catch(() => {});
     await p.query(`
       CREATE TABLE IF NOT EXISTS check_report_domains (
         report_id UUID NOT NULL REFERENCES check_reports(id) ON DELETE CASCADE,
@@ -89,9 +93,26 @@ export async function initDb(): Promise<boolean> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         last_run_at TIMESTAMPTZ,
-        last_job_id UUID
+        last_job_id UUID,
+        running_job_id UUID
       );
     `);
+    await p.query(`
+      ALTER TABLE schedules ADD COLUMN IF NOT EXISTS running_job_id UUID;
+    `).catch(() => {});
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS schedule_run_log (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        schedule_id UUID NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+        job_id UUID NOT NULL,
+        event TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`
+      CREATE INDEX IF NOT EXISTS idx_schedule_run_log_schedule_id
+      ON schedule_run_log(schedule_id);
+    `).catch(() => {});
     return true;
   } catch (e) {
     console.error('[db] init failed:', e);
@@ -114,12 +135,13 @@ export async function saveReportToHistory(jobId: string, job: JobRecord): Promis
   const client = await p.connect();
   try {
     await client.query(
-      `INSERT INTO check_reports (id, created_at, mode, progress, summary, results)
-       VALUES ($1, to_timestamp($2 / 1000.0), $3, $4, $5, $6)
+      `INSERT INTO check_reports (id, created_at, mode, progress, summary, results, finished_at)
+       VALUES ($1, to_timestamp($2 / 1000.0), $3, $4, $5, $6, NOW())
        ON CONFLICT (id) DO UPDATE SET
          progress = EXCLUDED.progress,
          summary = EXCLUDED.summary,
-         results = EXCLUDED.results`,
+         results = EXCLUDED.results,
+         finished_at = NOW()`,
       [
         jobId,
         job.createdAt,
@@ -148,9 +170,43 @@ export async function saveReportToHistory(jobId: string, job: JobRecord): Promis
   }
 }
 
+/** Вставляет запись о начале проверки по расписанию, чтобы она отображалась в истории. */
+export async function saveReportStartedToHistory(
+  jobId: string,
+  mode: string,
+  createdAt: number,
+  firstUrl: string
+): Promise<void> {
+  const p = getPool();
+  if (!p) return;
+  const domain = getHostname(firstUrl);
+  try {
+    await p.query(
+      `INSERT INTO check_reports (id, created_at, mode, progress, summary, results)
+       VALUES ($1, to_timestamp($2 / 1000.0), $3, $4, NULL, '[]')
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        jobId,
+        createdAt,
+        mode,
+        JSON.stringify({ status: 'running', processed: 0, failed: 0, violations: 0 }),
+      ]
+    );
+    if (domain) {
+      await p.query(
+        'INSERT INTO check_report_domains (report_id, domain) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [jobId, domain]
+      );
+    }
+  } catch (e) {
+    console.error('[db] saveReportStarted failed:', e);
+  }
+}
+
 export interface StoredReportMeta {
   jobId: string;
   createdAt: number;
+  finishedAt: number | null;
   mode: string;
   summary: { pagesProcessed?: number; pagesWithViolations?: number } | null;
 }
@@ -204,16 +260,17 @@ export async function getReportsByDomain(domain: string): Promise<StoredReportMe
   const p = getPool();
   if (!p) return [];
   const res = await p.query(
-    `SELECT r.id, r.created_at, r.mode, r.summary
+    `SELECT r.id, r.created_at, r.finished_at, r.mode, r.summary
      FROM check_reports r
      JOIN check_report_domains d ON d.report_id = r.id
      WHERE d.domain = $1
      ORDER BY r.created_at DESC`,
     [domain]
   );
-  return res.rows.map((row: { id: string; created_at: Date; mode: string; summary: unknown }) => ({
+  return res.rows.map((row: { id: string; created_at: Date; finished_at: Date | null; mode: string; summary: unknown }) => ({
     jobId: row.id,
     createdAt: row.created_at instanceof Date ? row.created_at.getTime() : Number(new Date(row.created_at)),
+    finishedAt: row.finished_at != null ? (row.finished_at instanceof Date ? row.finished_at.getTime() : Number(new Date(row.finished_at))) : null,
     mode: row.mode,
     summary: row.summary != null ? (typeof row.summary === 'object' ? row.summary : JSON.parse(String(row.summary))) : null,
   }));
@@ -274,6 +331,7 @@ function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
     updatedAt,
     lastRunAt,
     lastJobId: r.last_job_id as string | null,
+    runningJobId: r.running_job_id as string | null,
   };
 }
 
@@ -379,9 +437,61 @@ export async function updateScheduleLastRun(id: string, jobId: string, lastRunAt
   const p = getPool();
   if (!p) return;
   await p.query(
-    'UPDATE schedules SET last_run_at = $1, last_job_id = $2, updated_at = NOW() WHERE id = $3',
+    'UPDATE schedules SET last_run_at = $1, last_job_id = $2, running_job_id = NULL, updated_at = NOW() WHERE id = $3',
     [new Date(lastRunAt), jobId, id]
   );
+}
+
+export async function updateScheduleRunningJob(scheduleId: string, jobId: string | null): Promise<void> {
+  const p = getPool();
+  if (!p) return;
+  await p.query(
+    'UPDATE schedules SET running_job_id = $1, updated_at = NOW() WHERE id = $2',
+    [jobId, scheduleId]
+  );
+}
+
+export type ScheduleRunLogEvent = 'started' | 'finished' | 'failed';
+
+export interface ScheduleRunLogEntry {
+  id: string;
+  scheduleId: string;
+  jobId: string;
+  event: ScheduleRunLogEvent;
+  createdAt: number;
+}
+
+export async function insertScheduleRunLog(
+  scheduleId: string,
+  jobId: string,
+  event: ScheduleRunLogEvent
+): Promise<void> {
+  const p = getPool();
+  if (!p) return;
+  await p.query(
+    'INSERT INTO schedule_run_log (schedule_id, job_id, event) VALUES ($1, $2, $3)',
+    [scheduleId, jobId, event]
+  );
+}
+
+export async function getScheduleRunLog(scheduleId: string, limit = 20): Promise<ScheduleRunLogEntry[]> {
+  const p = getPool();
+  if (!p) return [];
+  const res = await p.query(
+    `SELECT id, schedule_id, job_id, event, created_at
+     FROM schedule_run_log
+     WHERE schedule_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [scheduleId, limit]
+  );
+  return res.rows.map((row: { id: string; schedule_id: string; job_id: string; event: string; created_at: Date }) => ({
+    id: row.id,
+    scheduleId: row.schedule_id,
+    jobId: row.job_id,
+    event: row.event as ScheduleRunLogEvent,
+    createdAt: row.created_at instanceof Date ? row.created_at.getTime() : Number(new Date(row.created_at)),
+  }));
 }
 
 export async function deleteSchedule(id: string): Promise<boolean> {

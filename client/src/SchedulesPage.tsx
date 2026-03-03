@@ -14,8 +14,8 @@ import {
   message,
   Popconfirm,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { Schedule, ScheduleCreate } from './api';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined, LinkOutlined } from '@ant-design/icons';
+import type { Schedule, ScheduleCreate, ScheduleRunLogEntry } from './api';
 import { getSchedules, createSchedule, updateSchedule, deleteSchedule } from './api';
 
 /** Форматирование даты в московском времени. */
@@ -29,6 +29,19 @@ function formatDate(ts: number | null): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatLogEvent(event: ScheduleRunLogEntry['event']): string {
+  switch (event) {
+    case 'started':
+      return 'Проверка началась';
+    case 'finished':
+      return 'Проверка завершена';
+    case 'failed':
+      return 'Проверка завершилась с ошибкой';
+    default:
+      return event;
+  }
 }
 
 export function SchedulesPage() {
@@ -164,6 +177,48 @@ export function SchedulesPage() {
       key: 'nextRunAt',
       width: 160,
       render: (ts: number | null) => formatDate(ts),
+    },
+    {
+      title: 'Статус',
+      key: 'status',
+      width: 180,
+      render: (_: unknown, r: Schedule) =>
+        r.runningJobId ? (
+          <Space>
+            <Tag icon={<SyncOutlined spin />} color="processing">
+              Идёт проверка
+            </Tag>
+            <Button
+              type="link"
+              size="small"
+              icon={<LinkOutlined />}
+              href={`/?jobId=${encodeURIComponent(r.runningJobId!)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Открыть
+            </Button>
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
+    },
+    {
+      title: 'Лог',
+      key: 'runLog',
+      width: 280,
+      render: (_: unknown, r: Schedule) =>
+        r.runLog?.length ? (
+          <div style={{ fontSize: 12 }}>
+            {r.runLog.slice(0, 3).map((entry) => (
+              <div key={entry.id}>
+                {formatDate(entry.createdAt)} — {formatLogEvent(entry.event)}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
     },
     {
       title: 'Уведомления',

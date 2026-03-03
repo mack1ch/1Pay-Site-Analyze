@@ -1,5 +1,12 @@
 import { randomUUID } from 'crypto';
-import { getSchedules, getNextRunFromCron, updateScheduleLastRun } from './db.js';
+import {
+  getSchedules,
+  getNextRunFromCron,
+  updateScheduleLastRun,
+  updateScheduleRunningJob,
+  insertScheduleRunLog,
+  saveReportStartedToHistory,
+} from './db.js';
 import type { ScheduleRecord } from './types.js';
 import { createJob, getJob } from './job-store.js';
 import { runJob, buildCrawlOptions } from './job-processor.js';
@@ -50,9 +57,17 @@ export function startScheduler(): void {
 
       createJob(jobId, schedule.mode, total, schedule.id);
 
+      const firstUrl = urls[0];
+      await updateScheduleRunningJob(schedule.id, jobId);
+      await insertScheduleRunLog(schedule.id, jobId, 'started');
+      saveReportStartedToHistory(jobId, schedule.mode, now, firstUrl).catch((err) =>
+        console.warn('[scheduler] saveReportStarted failed:', err)
+      );
+
       runJob(jobId, schedule.mode, urls, crawlOpts, opts, undefined)
         .then(async () => {
           const job = getJob(jobId);
+          await insertScheduleRunLog(schedule.id, jobId, 'finished');
           await updateScheduleLastRun(schedule.id, jobId, now);
           if (job) {
             const hasProblems =
@@ -67,12 +82,14 @@ export function startScheduler(): void {
             }
           }
         })
-        .catch((err) => {
+        .catch(async (err) => {
           console.error('[scheduler] job failed:', schedule.id, err);
-          updateScheduleLastRun(schedule.id, jobId, now).catch(() => {});
+          await insertScheduleRunLog(schedule.id, jobId, 'failed');
+          await updateScheduleLastRun(schedule.id, jobId, now);
         })
         .finally(() => {
           runningSchedules.delete(schedule.id);
+          updateScheduleRunningJob(schedule.id, null).catch(() => {});
         });
     }
   }, CHECK_INTERVAL_MS);

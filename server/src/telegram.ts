@@ -114,3 +114,95 @@ export async function sendTelegramAlert(
     return false;
   }
 }
+
+/** Минимальные поля расписания для текста подтверждения. */
+export interface ScheduleConfirmationPayload {
+  name: string;
+  mode: 'list' | 'crawl';
+  seedUrls?: string[];
+  urls?: string[];
+  cronExpression: string;
+  timezone: string;
+  endAt: number | null;
+  enabled: boolean;
+  telegramChatId: string | null;
+  telegramBotToken: string | null;
+}
+
+/**
+ * Отправка подтверждения в Telegram: поставлен/обновлён мониторинг по расписанию.
+ * Отправляется в чат из расписания или из env (TELEGRAM_CHAT_ID / TELEGRAM_BOT_TOKEN).
+ */
+export async function sendTelegramScheduleConfirmation(
+  schedule: ScheduleConfirmationPayload,
+  options: { isUpdate?: boolean } = {}
+): Promise<boolean> {
+  const botToken = schedule.telegramBotToken?.trim() || process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const chatId = schedule.telegramChatId?.trim() || process.env.TELEGRAM_CHAT_ID?.trim();
+
+  if (!botToken || !chatId) {
+    return false;
+  }
+
+  const title = options.isUpdate ? '📋 Обновлено расписание мониторинга' : '✅ Поставлен мониторинг по расписанию';
+  const lines: string[] = [title, ''];
+
+  lines.push('📌 ' + (schedule.name || 'Без названия'));
+  lines.push('Режим: ' + (schedule.mode === 'crawl' ? 'Обход сайта (crawl)' : 'Список URL'));
+
+  if (schedule.mode === 'crawl' && schedule.seedUrls?.length) {
+    const hosts = schedule.seedUrls.slice(0, 5).map((u) => {
+      try {
+        return new URL(u).hostname;
+      } catch {
+        return u;
+      }
+    });
+    lines.push('Сайты: ' + escapeHtml(hosts.join(', ')) + (schedule.seedUrls.length > 5 ? ' …' : ''));
+  } else if (schedule.mode === 'list' && schedule.urls?.length) {
+    lines.push('URL: ' + schedule.urls.length + ' шт.');
+  }
+
+  lines.push('Расписание (cron): ' + escapeHtml(schedule.cronExpression));
+  lines.push('Часовой пояс: ' + escapeHtml(schedule.timezone));
+  lines.push('Статус: ' + (schedule.enabled ? 'Включено' : 'Выключено'));
+
+  if (schedule.endAt != null) {
+    const endStr = new Date(schedule.endAt).toLocaleString('ru-RU', {
+      timeZone: schedule.timezone,
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    lines.push('Действует до: ' + escapeHtml(endStr));
+  }
+
+  lines.push('');
+  lines.push('Уведомления о проблемах будут приходить в этот чат.');
+
+  const text = lines.join('\n');
+
+  try {
+    const res = await fetch(`${TELEGRAM_API}/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.warn('[telegram] schedule confirmation sendMessage failed:', res.status, err);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[telegram] schedule confirmation request failed:', (e as Error).message);
+    return false;
+  }
+}
