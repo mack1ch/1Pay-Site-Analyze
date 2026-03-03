@@ -27,6 +27,9 @@ function getPool(): pg.Pool | null {
     } catch (e) {
       console.error('[db] DATABASE_SSL_CA_PATH read failed:', e);
     }
+  } else {
+    // Подключение по IP с sslmode=require: шифрование без проверки сертификата (нет CA в контейнере)
+    config.ssl = { rejectUnauthorized: false };
   }
   pool = new Pool(config);
   return pool;
