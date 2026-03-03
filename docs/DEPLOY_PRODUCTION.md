@@ -93,16 +93,36 @@ postgresql://<user>:<password>@<host>:5432/onepayment_site_analyze?sslmode=requi
 
 ### Вариант B: SSL с verify-ca (как рекомендует Selectel)
 
-1. Скачай CA-сертификат Selectel (в панели БД обычно есть ссылка или инструкция).
-2. Сохрани его на сервере, например: `/var/www/sitechecker/certs/selectel-ca.pem`.
-3. В `.env` добавь:
+**Установка CA-сертификата Selectel**
+
+Для подключения через `psql` с хоста (в домашней папке):
+
+```bash
+mkdir -p ~/.postgresql/
+wget https://storage.dbaas.selcloud.ru/CA.pem -O ~/.postgresql/root.crt
+chmod 0600 ~/.postgresql/root.crt
+```
+
+Для приложения в Docker — положи сертификат в каталог проекта и смонтируй в контейнер:
+
+```bash
+mkdir -p ~/sitechecker/certs
+wget https://storage.dbaas.selcloud.ru/CA.pem -O ~/sitechecker/certs/root.crt
+chmod 0600 ~/sitechecker/certs/root.crt
+```
+
+В `docker-compose.yml` в секции `volumes` сервиса `app` добавь:
+
+```yaml
+- ./certs:/app/certs:ro
+```
+
+В `.env`:
 
 ```
 DATABASE_URL=postgresql://<user>:<password>@<host>:5432/onepayment_site_analyze?sslmode=verify-ca
-DATABASE_SSL_CA_PATH=/app/certs/selectel-ca.pem
+DATABASE_SSL_CA_PATH=/app/certs/root.crt
 ```
-
-В `docker-compose.yml` нужно смонтировать каталог с сертификатом (см. ниже).
 
 Проверка подключения с сервера (для verify-ca нужен путь к CA):
 
