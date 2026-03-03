@@ -1,12 +1,4 @@
 import pg from 'pg';
-import cronParser from 'cron-parser';
-import type { JobRecord, ScheduleRecord, JobOptions, ForbiddenSettings } from './types.js';
-
-const { Pool } = pg;
-
-let pool: pg.Pool | null = null;
-
-import pg from 'pg';
 import fs from 'fs';
 import cronParser from 'cron-parser';
 import type { JobRecord, ScheduleRecord, JobOptions, ForbiddenSettings } from './types.js';
