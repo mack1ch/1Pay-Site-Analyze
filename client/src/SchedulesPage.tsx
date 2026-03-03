@@ -51,20 +51,26 @@ export function SchedulesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form] = Form.useForm();
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const { schedules: list } = await getSchedules();
       setSchedules(list);
     } catch (e) {
-      message.error((e as Error).message);
+      if (!silent) message.error((e as Error).message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     load();
+  }, []);
+
+  // Обновляем список каждые 30 сек, чтобы подтягивать статус и лог после запуска проверки
+  useEffect(() => {
+    const interval = setInterval(() => load(true), 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSubmit = async () => {
@@ -146,9 +152,13 @@ export function SchedulesPage() {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
+      width: 220,
+      ellipsis: true,
       render: (name: string, r: Schedule) => (
-        <Space>
-          <Typography.Text strong>{name || 'Без названия'}</Typography.Text>
+        <Space size="small" wrap={false} style={{ width: '100%', minWidth: 0 }}>
+          <Typography.Text strong ellipsis style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {name || 'Без названия'}
+          </Typography.Text>
           <Tag>{r.mode === 'crawl' ? 'Обход' : 'Список'}</Tag>
         </Space>
       ),
@@ -156,14 +166,23 @@ export function SchedulesPage() {
     {
       title: 'URL / сайт',
       key: 'url',
-      render: (_: unknown, r: Schedule) =>
-        r.mode === 'crawl'
-          ? (r.seedUrls?.length
-              ? r.seedUrls.length === 1
-                ? r.seedUrls[0]
-                : `${r.seedUrls.length} сайтов`
-              : '—')
-          : (r.urls?.length ? `${r.urls.length} URL` : '—'),
+      width: 140,
+      ellipsis: true,
+      render: (_: unknown, r: Schedule) => {
+        const text =
+          r.mode === 'crawl'
+            ? (r.seedUrls?.length
+                ? r.seedUrls.length === 1
+                  ? r.seedUrls[0]
+                  : `${r.seedUrls.length} сайтов`
+                : '—')
+            : (r.urls?.length ? `${r.urls.length} URL` : '—');
+        return (
+          <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={typeof text === 'string' ? text : undefined}>
+            {text}
+          </span>
+        );
+      },
     },
     {
       title: 'Cron',
@@ -272,6 +291,8 @@ export function SchedulesPage() {
           columns={columns}
           pagination={false}
           size="small"
+          tableLayout="fixed"
+          scroll={{ x: 1420 }}
         />
       </Card>
 
