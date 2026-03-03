@@ -3,10 +3,10 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=${PORT:-3000}
     env_file: .env
     volumes:
       - screenshots:/app/server/storage/screenshots
