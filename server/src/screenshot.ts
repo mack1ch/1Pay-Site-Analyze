@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import type { Browser, Page } from 'playwright';
 import sharp from 'sharp';
@@ -157,10 +158,12 @@ async function drawHighlightsOnImage(
     }
   }
 
+  const tmpPath = path.join(path.dirname(imagePath), '_tmp_' + path.basename(imagePath));
   await image
     .composite(overlays)
     .png()
-    .toFile(imagePath);
+    .toFile(tmpPath);
+  fs.renameSync(tmpPath, imagePath);
 }
 
 /**
