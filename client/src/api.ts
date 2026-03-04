@@ -341,6 +341,23 @@ export interface Schedule {
   nextRunAt: number | null;
   /** Лог запусков: началась / закончилась проверка. */
   runLog?: ScheduleRunLogEntry[];
+  groupId?: string | null;
+  sortOrder?: number;
+}
+
+/** Группа расписаний: запуск по интервалу в минутах. */
+export interface ScheduleGroup {
+  id: string;
+  name: string;
+  intervalMinutes: number;
+  timezone: string;
+  endAt: number | null;
+  enabled: boolean;
+  lastRunAt: number | null;
+  runningJobId: string | null;
+  runningScheduleId: string | null;
+  nextRunAt: number;
+  schedules: Schedule[];
 }
 
 export interface ScheduleRunLogEntry {
@@ -358,7 +375,7 @@ export interface ScheduleCreate {
   /** Стартовые URL для обхода (crawl). */
   seedUrls?: string[];
   urls?: string[];
-  cronExpression: string;
+  cronExpression?: string;
   timezone?: string;
   endAt?: number | null;
   options?: Record<string, unknown>;
@@ -366,6 +383,16 @@ export interface ScheduleCreate {
   forbiddenSettings?: Record<string, unknown>;
   telegramChatId?: string | null;
   telegramBotToken?: string | null;
+  enabled?: boolean;
+  groupId?: string | null;
+  sortOrder?: number;
+}
+
+export interface ScheduleGroupCreate {
+  name?: string;
+  intervalMinutes: number;
+  timezone?: string;
+  endAt?: number | null;
   enabled?: boolean;
 }
 
@@ -410,6 +437,49 @@ export async function updateSchedule(id: string, body: Partial<ScheduleCreate>):
 export async function deleteSchedule(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/schedules/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Не удалось удалить');
+}
+
+export async function getScheduleGroups(): Promise<{ groups: ScheduleGroup[] }> {
+  const res = await fetch(`${API_BASE}/schedule-groups`);
+  if (!res.ok) throw new Error('Не удалось загрузить группы расписаний');
+  return res.json();
+}
+
+export async function getScheduleGroup(id: string): Promise<ScheduleGroup> {
+  const res = await fetch(`${API_BASE}/schedule-groups/${id}`);
+  if (!res.ok) throw new Error('Группа не найдена');
+  return res.json();
+}
+
+export async function createScheduleGroup(body: ScheduleGroupCreate): Promise<ScheduleGroup> {
+  const res = await fetch(`${API_BASE}/schedule-groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
+  return res.json();
+}
+
+export async function updateScheduleGroup(id: string, body: Partial<ScheduleGroupCreate>): Promise<ScheduleGroup> {
+  const res = await fetch(`${API_BASE}/schedule-groups/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || res.statusText);
+  }
+  return res.json();
+}
+
+export async function deleteScheduleGroup(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/schedule-groups/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Не удалось удалить группу');
 }
 
 export function screenshotFullUrl(screenshotUrl: string): string {

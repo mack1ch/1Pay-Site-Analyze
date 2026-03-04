@@ -29,15 +29,20 @@ export default async function scheduleRoutes(app: FastifyInstance) {
   app.get('/api/schedules', async (_request, reply) => {
     const list = await getSchedules(false);
     const withNext = await Promise.all(
-      list.map(async (s) => ({
-        ...s,
-        nextRunAt: getNextRunFromCron(
-          s.cronExpression,
-          s.timezone,
-          s.lastRunAt ? new Date(s.lastRunAt) : undefined
-        ),
-        runLog: await getScheduleRunLog(s.id, 10),
-      }))
+      list.map(async (s) => {
+        const nextRunAt = s.groupId
+          ? null
+          : getNextRunFromCron(
+              s.cronExpression,
+              s.timezone,
+              s.lastRunAt ? new Date(s.lastRunAt) : undefined
+            );
+        return {
+          ...s,
+          nextRunAt,
+          runLog: await getScheduleRunLog(s.id, 10),
+        };
+      })
     );
     return reply.send({ schedules: withNext });
   });
@@ -54,8 +59,8 @@ export default async function scheduleRoutes(app: FastifyInstance) {
     if (!body.mode || !['list', 'crawl'].includes(body.mode)) {
       return reply.code(400).send({ error: 'Укажите mode: list или crawl' });
     }
-    if (!body.cronExpression?.trim()) {
-      return reply.code(400).send({ error: 'Укажите cron_expression' });
+    if (!body.groupId && !body.cronExpression?.trim()) {
+      return reply.code(400).send({ error: 'Укажите cron_expression или group_id' });
     }
     if (body.mode === 'crawl') {
       const seedUrls = Array.isArray(body.seedUrls)
@@ -86,7 +91,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
         mode: body.mode,
         seedUrls: body.mode === 'crawl' ? crawlSeedUrls : undefined,
         urls: body.mode === 'list' ? body.urls : [],
-        cronExpression: body.cronExpression.trim(),
+        cronExpression: body.groupId ? '' : (body.cronExpression ?? '').trim(),
         timezone: body.timezone ?? config.defaultTimezone,
         endAt: body.endAt ?? null,
         options: body.options ?? {},
@@ -95,6 +100,8 @@ export default async function scheduleRoutes(app: FastifyInstance) {
         telegramChatId: body.telegramChatId ?? null,
         telegramBotToken: body.telegramBotToken ?? null,
         enabled: body.enabled !== false,
+        groupId: body.groupId ?? null,
+        sortOrder: body.sortOrder ?? 0,
       });
       sendTelegramScheduleConfirmation(schedule, { isUpdate: false }).catch((err) =>
         console.warn('[schedules] confirmation telegram failed:', err)

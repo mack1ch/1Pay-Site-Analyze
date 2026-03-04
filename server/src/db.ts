@@ -75,6 +75,21 @@ export async function initDb(): Promise<boolean> {
       ON check_report_domains(domain);
     `);
     await p.query(`
+      CREATE TABLE IF NOT EXISTS schedule_groups (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL DEFAULT '',
+        interval_minutes INT NOT NULL DEFAULT 60,
+        timezone TEXT NOT NULL DEFAULT 'Europe/Moscow',
+        end_at TIMESTAMPTZ,
+        enabled BOOLEAN NOT NULL DEFAULT true,
+        last_run_at TIMESTAMPTZ,
+        running_job_id UUID,
+        running_schedule_id UUID,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await p.query(`
       CREATE TABLE IF NOT EXISTS schedules (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL DEFAULT '',
@@ -99,6 +114,15 @@ export async function initDb(): Promise<boolean> {
     `);
     await p.query(`
       ALTER TABLE schedules ADD COLUMN IF NOT EXISTS running_job_id UUID;
+    `).catch(() => {});
+    await p.query(`
+      ALTER TABLE schedules ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES schedule_groups(id) ON DELETE CASCADE;
+    `).catch(() => {});
+    await p.query(`
+      ALTER TABLE schedules ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;
+    `).catch(() => {});
+    await p.query(`
+      ALTER TABLE schedules ALTER COLUMN cron_expression DROP NOT NULL;
     `).catch(() => {});
     await p.query(`
       CREATE TABLE IF NOT EXISTS schedule_run_log (
@@ -301,6 +325,23 @@ function parseSeedUrls(seedUrl: unknown): string[] {
   return /^https?:\/\//i.test(s) ? [s] : [];
 }
 
+/** Максимум интервала: 30 дней в минутах */
+export const MAX_INTERVAL_MINUTES = 30 * 24 * 60; // 43200
+
+export interface ScheduleGroupRecord {
+  id: string;
+  name: string;
+  intervalMinutes: number;
+  timezone: string;
+  endAt: number | null;
+  enabled: boolean;
+  lastRunAt: number | null;
+  runningJobId: string | null;
+  runningScheduleId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
   const createdAt = r.created_at instanceof Date ? r.created_at.getTime() : Number(new Date(r.created_at as string));
   const updatedAt = r.updated_at instanceof Date ? r.updated_at.getTime() : Number(new Date(r.updated_at as string));
@@ -318,7 +359,7 @@ function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
     seedUrl: seedUrls[0] ?? null,
     seedUrls,
     urls: Array.isArray(r.urls) ? (r.urls as string[]) : JSON.parse(String(r.urls || '[]')),
-    cronExpression: r.cron_expression as string,
+    cronExpression: (r.cron_expression as string) ?? '',
     timezone: (r.timezone as string) || config.defaultTimezone,
     endAt,
     options: (typeof r.options === 'object' && r.options !== null ? r.options : JSON.parse(String(r.options || '{}'))) as JobOptions,
@@ -332,6 +373,8 @@ function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
     lastRunAt,
     lastJobId: r.last_job_id as string | null,
     runningJobId: r.running_job_id as string | null,
+    groupId: r.group_id as string | null,
+    sortOrder: typeof r.sort_order === 'number' ? r.sort_order : 0,
   };
 }
 
@@ -362,7 +405,7 @@ export interface ScheduleInsert {
   /** Стартовые URL для обхода (crawl). Сохраняются в seed_url как JSON-массив. */
   seedUrls?: string[];
   urls?: string[];
-  cronExpression: string;
+  cronExpression?: string;
   timezone?: string;
   endAt?: number | null;
   options?: JobOptions;
@@ -370,6 +413,16 @@ export interface ScheduleInsert {
   forbiddenSettings?: ForbiddenSettings;
   telegramChatId?: string | null;
   telegramBotToken?: string | null;
+  enabled?: boolean;
+  groupId?: string | null;
+  sortOrder?: number;
+}
+
+export interface ScheduleGroupInsert {
+  name: string;
+  intervalMinutes: number;
+  timezone?: string;
+  endAt?: number | null;
   enabled?: boolean;
 }
 
@@ -379,15 +432,15 @@ export async function createSchedule(input: ScheduleInsert): Promise<ScheduleRec
   const res = await p.query(
     `INSERT INTO schedules (
       name, mode, seed_url, urls, cron_expression, timezone, end_at, options,
-      forbidden_terms, forbidden_settings, telegram_chat_id, telegram_bot_token, enabled
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      forbidden_terms, forbidden_settings, telegram_chat_id, telegram_bot_token, enabled, group_id, sort_order
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     RETURNING *`,
     [
       input.name || '',
       input.mode,
       input.seedUrls?.length ? JSON.stringify(input.seedUrls) : (input.seedUrl ?? null),
       JSON.stringify(input.urls ?? []),
-      input.cronExpression,
+      input.cronExpression ?? (input.groupId ? '' : '0 * * * *'),
       input.timezone ?? config.defaultTimezone,
       input.endAt != null ? new Date(input.endAt) : null,
       JSON.stringify(input.options ?? {}),
@@ -396,6 +449,8 @@ export async function createSchedule(input: ScheduleInsert): Promise<ScheduleRec
       input.telegramChatId ?? null,
       input.telegramBotToken ?? null,
       input.enabled !== false,
+      input.groupId ?? null,
+      input.sortOrder ?? 0,
     ]
   );
   return rowToSchedule(res.rows[0] as Record<string, unknown>);
@@ -423,6 +478,8 @@ export async function updateSchedule(id: string, input: Partial<ScheduleInsert>)
   if (input.telegramChatId !== undefined) { updates.push(`telegram_chat_id = $${idx++}`); values.push(input.telegramChatId); }
   if (input.telegramBotToken !== undefined) { updates.push(`telegram_bot_token = $${idx++}`); values.push(input.telegramBotToken); }
   if (input.enabled !== undefined) { updates.push(`enabled = $${idx++}`); values.push(input.enabled); }
+  if (input.groupId !== undefined) { updates.push(`group_id = $${idx++}`); values.push(input.groupId); }
+  if (input.sortOrder !== undefined) { updates.push(`sort_order = $${idx++}`); values.push(input.sortOrder); }
   if (updates.length === 0) return existing;
   updates.push(`updated_at = NOW()`);
   values.push(id);
@@ -503,6 +560,7 @@ export async function deleteSchedule(id: string): Promise<boolean> {
 
 /** Следующий запуск по cron (в миллисекундах). */
 export function getNextRunFromCron(cronExpression: string, timezone: string, afterDate?: Date): number | null {
+  if (!cronExpression?.trim()) return null;
   try {
     const after = afterDate ?? new Date();
     const interval = cronParser.parseExpression(cronExpression, { currentDate: after, tz: timezone });
@@ -511,4 +569,145 @@ export function getNextRunFromCron(cronExpression: string, timezone: string, aft
   } catch {
     return null;
   }
+}
+
+/** Следующий запуск по интервалу в минутах (в миллисекундах). */
+export function getNextRunFromInterval(
+  intervalMinutes: number,
+  lastRunAt: number | null
+): number {
+  const now = Date.now();
+  if (lastRunAt == null) return now;
+  const next = lastRunAt + intervalMinutes * 60 * 1000;
+  return next <= now ? now : next;
+}
+
+// --- Schedule groups ---
+
+function rowToScheduleGroup(r: Record<string, unknown>): ScheduleGroupRecord {
+  const createdAt = r.created_at instanceof Date ? r.created_at.getTime() : Number(new Date(r.created_at as string));
+  const updatedAt = r.updated_at instanceof Date ? r.updated_at.getTime() : Number(new Date(r.updated_at as string));
+  const lastRunAt = r.last_run_at != null
+    ? (r.last_run_at instanceof Date ? r.last_run_at.getTime() : Number(new Date(r.last_run_at as string)))
+    : null;
+  const endAt = r.end_at != null
+    ? (r.end_at instanceof Date ? r.end_at.getTime() : Number(new Date(r.end_at as string)))
+    : null;
+  return {
+    id: r.id as string,
+    name: (r.name as string) || '',
+    intervalMinutes: Number(r.interval_minutes) || 60,
+    timezone: (r.timezone as string) || config.defaultTimezone,
+    endAt,
+    enabled: Boolean(r.enabled),
+    lastRunAt,
+    runningJobId: r.running_job_id as string | null,
+    runningScheduleId: r.running_schedule_id as string | null,
+    createdAt,
+    updatedAt,
+  };
+}
+
+export async function getScheduleGroups(enabledOnly = false): Promise<ScheduleGroupRecord[]> {
+  const p = getPool();
+  if (!p) return [];
+  const res = await p.query(
+    enabledOnly
+      ? 'SELECT * FROM schedule_groups WHERE enabled = true ORDER BY created_at ASC'
+      : 'SELECT * FROM schedule_groups ORDER BY created_at ASC'
+  );
+  return res.rows.map((r: Record<string, unknown>) => rowToScheduleGroup(r));
+}
+
+export async function getScheduleGroupById(id: string): Promise<ScheduleGroupRecord | null> {
+  const p = getPool();
+  if (!p) return null;
+  const res = await p.query('SELECT * FROM schedule_groups WHERE id = $1', [id]);
+  if (res.rows.length === 0) return null;
+  return rowToScheduleGroup(res.rows[0] as Record<string, unknown>);
+}
+
+export async function getSchedulesByGroupId(groupId: string): Promise<ScheduleRecord[]> {
+  const p = getPool();
+  if (!p) return [];
+  const res = await p.query(
+    'SELECT * FROM schedules WHERE group_id = $1 ORDER BY sort_order ASC, created_at ASC',
+    [groupId]
+  );
+  return res.rows.map((r: Record<string, unknown>) => rowToSchedule(r));
+}
+
+export async function createScheduleGroup(input: ScheduleGroupInsert): Promise<ScheduleGroupRecord> {
+  const p = getPool();
+  if (!p) throw new Error('Database not configured');
+  const interval = Math.max(1, Math.min(MAX_INTERVAL_MINUTES, input.intervalMinutes));
+  const res = await p.query(
+    `INSERT INTO schedule_groups (name, interval_minutes, timezone, end_at, enabled)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [
+      input.name || '',
+      interval,
+      input.timezone ?? config.defaultTimezone,
+      input.endAt != null ? new Date(input.endAt) : null,
+      input.enabled !== false,
+    ]
+  );
+  return rowToScheduleGroup(res.rows[0] as Record<string, unknown>);
+}
+
+export async function updateScheduleGroup(id: string, input: Partial<ScheduleGroupInsert>): Promise<ScheduleGroupRecord | null> {
+  const p = getPool();
+  if (!p) return null;
+  const existing = await getScheduleGroupById(id);
+  if (!existing) return null;
+  const updates: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+  if (input.name !== undefined) { updates.push(`name = $${idx++}`); values.push(input.name); }
+  if (input.intervalMinutes !== undefined) {
+    const interval = Math.max(1, Math.min(MAX_INTERVAL_MINUTES, input.intervalMinutes));
+    updates.push(`interval_minutes = $${idx++}`);
+    values.push(interval);
+  }
+  if (input.timezone !== undefined) { updates.push(`timezone = $${idx++}`); values.push(input.timezone); }
+  if (input.endAt !== undefined) { updates.push(`end_at = $${idx++}`); values.push(input.endAt != null ? new Date(input.endAt) : null); }
+  if (input.enabled !== undefined) { updates.push(`enabled = $${idx++}`); values.push(input.enabled); }
+  if (updates.length === 0) return existing;
+  updates.push(`updated_at = NOW()`);
+  values.push(id);
+  await p.query(
+    `UPDATE schedule_groups SET ${updates.join(', ')} WHERE id = $${idx}`,
+    values
+  );
+  return getScheduleGroupById(id);
+}
+
+export async function deleteScheduleGroup(id: string): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  const res = await p.query('DELETE FROM schedule_groups WHERE id = $1', [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function updateGroupRunningJob(
+  groupId: string,
+  jobId: string | null,
+  runningScheduleId: string | null
+): Promise<void> {
+  const p = getPool();
+  if (!p) return;
+  await p.query(
+    'UPDATE schedule_groups SET running_job_id = $1, running_schedule_id = $2, updated_at = NOW() WHERE id = $3',
+    [jobId, runningScheduleId, groupId]
+  );
+}
+
+export async function updateGroupLastRun(groupId: string, lastRunAt: number): Promise<void> {
+  const p = getPool();
+  if (!p) return;
+  await p.query(
+    'UPDATE schedule_groups SET last_run_at = $1, running_job_id = NULL, running_schedule_id = NULL, updated_at = NOW() WHERE id = $2',
+    [new Date(lastRunAt), groupId]
+  );
 }

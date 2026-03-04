@@ -7,6 +7,7 @@ import { existsSync, mkdirSync } from 'fs';
 import jobsRoutes from './routes/jobs.js';
 import historyRoutes from './routes/history.js';
 import scheduleRoutes from './routes/schedules.js';
+import scheduleGroupRoutes from './routes/schedule-groups.js';
 import presetsRoutes from './routes/presets.js';
 import { initDb } from './db.js';
 import { startScheduler } from './scheduler.js';
@@ -35,6 +36,7 @@ async function main() {
   await app.register(jobsRoutes);
   await app.register(historyRoutes);
   await app.register(scheduleRoutes);
+  await app.register(scheduleGroupRoutes);
   await app.register(presetsRoutes);
 
   // Serve built client (Docker / production): use not-found handler to avoid duplicating GET *

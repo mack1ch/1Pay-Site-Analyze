@@ -327,4 +327,7 @@ export interface ScheduleRecord {
   lastJobId: string | null;
   /** Текущая выполняющаяся проверка (заполняется при старте, очищается при завершении). */
   runningJobId: string | null;
+  /** Группа: при задании расписание запускается по интервалу группы. */
+  groupId: string | null;
+  sortOrder: number;
 }
