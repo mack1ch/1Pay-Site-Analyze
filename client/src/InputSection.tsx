@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Card, Tabs, Input, Select, InputNumber, Checkbox, Button, Space, Form, Tooltip, Collapse } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { parseCsvUrls } from './csv';
@@ -7,23 +7,35 @@ import type { JobOptions, CrawlOptionsInput, AccessOptions, AccessPresetsRespons
 
 type InputMode = 'list' | 'crawl';
 
-interface InputSectionProps {
-  onStart: (mode: 'list' | 'crawl', urls: string[], options: JobOptions) => void;
-  loading: boolean;
+export interface InputSectionValues {
+  mode: 'list' | 'crawl';
+  urls: string[];
+  options: JobOptions;
 }
 
-export function InputSection({ onStart, loading }: InputSectionProps) {
-  const [inputMode, setInputMode] = useState<InputMode>('list');
-  const [rawUrls, setRawUrls] = useState('');
+interface InputSectionProps {
+  /** Режим проверки: при отсутствии кнопка «Старт» скрыта, значения читаются через ref.getValues(). */
+  onStart?: (mode: 'list' | 'crawl', urls: string[], options: JobOptions) => void;
+  loading?: boolean;
+  /** Начальные значения (для формы редактирования расписания). */
+  initialValues?: Partial<{ mode: InputMode; rawUrls: string; seedUrlsText: string; crawlMode: CrawlOptionsInput['crawlMode']; maxPages: number; maxDepth: number; sameHostOnly: boolean; useBrowserFetch: boolean }>;
+}
+
+export const InputSection = forwardRef<{ getValues: () => InputSectionValues | null }, InputSectionProps>(function InputSection(
+  { onStart, loading = false, initialValues },
+  ref
+) {
+  const [inputMode, setInputMode] = useState<InputMode>(initialValues?.mode ?? 'list');
+  const [rawUrls, setRawUrls] = useState(initialValues?.rawUrls ?? '');
   const [csvUrlFile, setCsvUrlFile] = useState<string | null>(null);
-  const [seedUrlsText, setSeedUrlsText] = useState('');
-  const [crawlMode, setCrawlMode] = useState<CrawlOptionsInput['crawlMode']>('crawl');
-  const [maxPages, setMaxPages] = useState(50);
-  const [maxDepth, setMaxDepth] = useState(2);
-  const [sameHostOnly, setSameHostOnly] = useState(true);
+  const [seedUrlsText, setSeedUrlsText] = useState(initialValues?.seedUrlsText ?? '');
+  const [crawlMode, setCrawlMode] = useState<CrawlOptionsInput['crawlMode']>(initialValues?.crawlMode ?? 'crawl');
+  const [maxPages, setMaxPages] = useState(initialValues?.maxPages ?? 50);
+  const [maxDepth, setMaxDepth] = useState(initialValues?.maxDepth ?? 2);
+  const [sameHostOnly, setSameHostOnly] = useState(initialValues?.sameHostOnly ?? true);
   const [excludePatterns, setExcludePatterns] = useState('');
   const [includePatterns, setIncludePatterns] = useState('');
-  const [useBrowserFetch, setUseBrowserFetch] = useState(false);
+  const [useBrowserFetch, setUseBrowserFetch] = useState(initialValues?.useBrowserFetch ?? false);
   const [accessOpen, setAccessOpen] = useState(false);
   const [presets, setPresets] = useState<AccessPresetsResponse | null>(null);
   const [proxyMode, setProxyMode] = useState<'none' | 'list' | 'by_country'>('none');
@@ -148,9 +160,9 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
     return access;
   };
 
-  const handleStart = () => {
+  const buildOptions = (): JobOptions => {
     const access = buildAccessOptions();
-    const options: JobOptions = {
+    return {
       concurrencyFetch: 8,
       concurrencyScreenshots: 2,
       maxChars: 300_000,
@@ -176,18 +188,30 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
             }
           : undefined,
     };
+  };
+
+  const getValues = (): InputSectionValues | null => {
     if (inputMode === 'list') {
-      if (dedupedUrls.length === 0) return;
-      onStart('list', dedupedUrls, options);
-    } else {
-      const seedUrls = seedUrlsText
-        .trim()
-        .split(/\n/)
-        .map((s) => s.trim())
-        .filter((u) => /^https?:\/\//i.test(u));
-      if (seedUrls.length === 0) return;
-      onStart('crawl', seedUrls, options);
+      if (dedupedUrls.length === 0) return null;
+      return { mode: 'list', urls: dedupedUrls, options: buildOptions() };
     }
+    const seedUrls = seedUrlsText
+      .trim()
+      .split(/\n/)
+      .map((s) => s.trim())
+      .filter((u) => /^https?:\/\//i.test(u));
+    if (seedUrls.length === 0) return null;
+    return { mode: 'crawl', urls: seedUrls, options: buildOptions() };
+  };
+
+  const getValuesRef = useRef(getValues);
+  getValuesRef.current = getValues;
+  useImperativeHandle(ref, () => ({ getValues: () => getValuesRef.current() }), []);
+
+  const handleStart = () => {
+    const values = getValues();
+    if (!values || !onStart) return;
+    onStart(values.mode, values.urls, values.options);
   };
 
   const tabItems = [
@@ -619,24 +643,26 @@ export function InputSection({ onStart, loading }: InputSectionProps) {
           </Space>
         </Collapse.Panel>
       </Collapse>
-      <div style={{ marginTop: 0 }}>
-        <Button
-          type="primary"
-          size="large"
-          onClick={handleStart}
-          loading={loading}
-          disabled={
-            (inputMode === 'list' && dedupedUrls.length === 0) ||
-            (inputMode === 'crawl' &&
-              !seedUrlsText
-                .trim()
-                .split(/\n/)
-                .some((u) => /^https?:\/\//i.test(u.trim())))
-          }
-        >
-          {loading ? 'Запуск…' : 'Старт'}
-        </Button>
-      </div>
+      {onStart != null && (
+        <div style={{ marginTop: 0 }}>
+          <Button
+            type="primary"
+            size="large"
+            onClick={handleStart}
+            loading={loading}
+            disabled={
+              (inputMode === 'list' && dedupedUrls.length === 0) ||
+              (inputMode === 'crawl' &&
+                !seedUrlsText
+                  .trim()
+                  .split(/\n/)
+                  .some((u) => /^https?:\/\//i.test(u.trim())))
+            }
+          >
+            {loading ? 'Запуск…' : 'Старт'}
+          </Button>
+        </div>
+      )}
     </Card>
   );
-}
+});

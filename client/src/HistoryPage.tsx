@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, List, Typography, Tag, Button, Spin, Alert, Collapse } from 'antd';
 import { HistoryOutlined, FileTextOutlined, SyncOutlined } from '@ant-design/icons';
-import { getHistoryDomains, getHistoryReports, getSchedules, type DomainHistoryItem, type StoredReportMeta } from './api';
+import { getHistoryDomains, getHistoryReports, getRecentReports, getSchedules, type DomainHistoryItem, type StoredReportMeta, type RecentReportMeta } from './api';
 
 /** Форматирование даты в московском времени. */
 function formatDate(ts: number): string {
@@ -19,6 +19,7 @@ function formatDate(ts: number): string {
 export function HistoryPage() {
   const navigate = useNavigate();
   const [domains, setDomains] = useState<DomainHistoryItem[]>([]);
+  const [recentReports, setRecentReports] = useState<RecentReportMeta[]>([]);
   const [runningJobs, setRunningJobs] = useState<Array<{ scheduleName: string; jobId: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,10 +28,11 @@ export function HistoryPage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getHistoryDomains(), getSchedules()])
-      .then(([{ domains: list }, { schedules }]) => {
+    Promise.all([getHistoryDomains(), getRecentReports(100), getSchedules()])
+      .then(([{ domains: list }, { reports: recent }, { schedules }]) => {
         if (!cancelled) {
           setDomains(list);
+          setRecentReports(recent);
           const running = schedules
             .filter((s) => s.runningJobId)
             .map((s) => ({ scheduleName: s.name || 'Без названия', jobId: s.runningJobId! }));
@@ -105,7 +107,7 @@ export function HistoryPage() {
     );
   }
 
-  if (domains.length === 0) {
+  if (domains.length === 0 && recentReports.length === 0) {
     return (
       <Card style={{ margin: 24 }}>
         <Typography.Paragraph type="secondary">
@@ -187,8 +189,72 @@ export function HistoryPage() {
   return (
     <Card title="История проверок" style={{ margin: 24 }}>
       <Typography.Paragraph type="secondary">
-        Сайты, по которым уже были проведены проверки, и сохранённые отчёты. Данные хранятся в PostgreSQL.
+        Показаны все сохранённые проверки (общие для всех). Сайты и отчёты хранятся в PostgreSQL.
       </Typography.Paragraph>
+      {recentReports.length > 0 && (
+        <Collapse
+          defaultActiveKey={['recent']}
+          style={{ marginBottom: 16 }}
+          items={[
+            {
+              key: 'recent',
+              label: (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Typography.Text strong>Последние проверки (все)</Typography.Text>
+                  <Tag color="blue">{recentReports.length} отчётов</Tag>
+                </span>
+              ),
+              children: (
+                <List
+                  size="small"
+                  dataSource={recentReports}
+                  renderItem={(r) => (
+                    <List.Item
+                      key={r.jobId}
+                      actions={[
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<FileTextOutlined />}
+                          onClick={() => openReport(r.jobId)}
+                        >
+                          Открыть отчёт
+                        </Button>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={
+                          <span>
+                            {r.domain && <Typography.Text type="secondary">{r.domain} — </Typography.Text>}
+                            {formatDate(r.createdAt)}
+                            <Tag style={{ marginLeft: 8 }}>{r.mode === 'crawl' ? 'Обход' : 'Список'}</Tag>
+                            {r.finishedAt == null && <Tag color="processing" icon={<SyncOutlined spin />}>В процессе</Tag>}
+                          </span>
+                        }
+                        description={
+                          <>
+                            <div style={{ marginBottom: 4 }}>{reportLogLine(r)}</div>
+                            {r.summary && (
+                              <>
+                                Страниц: {r.summary.pagesProcessed ?? '—'}
+                                {r.summary.pagesWithViolations != null && (
+                                  <span style={{ marginLeft: 12 }}>
+                                    С нарушениями: <Tag color="orange">{r.summary.pagesWithViolations}</Tag>
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+              ),
+            },
+          ]}
+        />
+      )}
       {runningJobs.length > 0 && (
         <Alert
           type="info"

@@ -125,6 +125,9 @@ export async function initDb(): Promise<boolean> {
       ALTER TABLE schedules ALTER COLUMN cron_expression DROP NOT NULL;
     `).catch(() => {});
     await p.query(`
+      ALTER TABLE schedules ADD COLUMN IF NOT EXISTS notify_always BOOLEAN NOT NULL DEFAULT false;
+    `).catch(() => {});
+    await p.query(`
       CREATE TABLE IF NOT EXISTS schedule_run_log (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         schedule_id UUID NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
@@ -300,6 +303,32 @@ export async function getReportsByDomain(domain: string): Promise<StoredReportMe
   }));
 }
 
+export interface RecentReportMeta extends StoredReportMeta {
+  domain: string | null;
+}
+
+/** Последние проверки по всем отчётам (общие для всех), для страницы истории. */
+export async function getRecentReports(limit = 100): Promise<RecentReportMeta[]> {
+  const p = getPool();
+  if (!p) return [];
+  const res = await p.query(
+    `SELECT r.id, r.created_at, r.finished_at, r.mode, r.summary,
+      (SELECT d.domain FROM check_report_domains d WHERE d.report_id = r.id ORDER BY d.domain LIMIT 1) AS domain
+     FROM check_reports r
+     ORDER BY r.created_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return res.rows.map((row: { id: string; created_at: Date; finished_at: Date | null; mode: string; summary: unknown; domain: string | null }) => ({
+    jobId: row.id,
+    createdAt: row.created_at instanceof Date ? row.created_at.getTime() : Number(new Date(row.created_at)),
+    finishedAt: row.finished_at != null ? (row.finished_at instanceof Date ? row.finished_at.getTime() : Number(new Date(row.finished_at))) : null,
+    mode: row.mode,
+    summary: row.summary != null ? (typeof row.summary === 'object' ? row.summary : JSON.parse(String(row.summary))) : null,
+    domain: row.domain,
+  }));
+}
+
 export async function closeDb(): Promise<void> {
   if (pool) {
     await pool.end();
@@ -368,6 +397,7 @@ function rowToSchedule(r: Record<string, unknown>): ScheduleRecord {
     telegramChatId: r.telegram_chat_id as string | null,
     telegramBotToken: r.telegram_bot_token as string | null,
     enabled: Boolean(r.enabled),
+    notifyAlways: Boolean(r.notify_always),
     createdAt,
     updatedAt,
     lastRunAt,
@@ -414,6 +444,8 @@ export interface ScheduleInsert {
   telegramChatId?: string | null;
   telegramBotToken?: string | null;
   enabled?: boolean;
+  /** Уведомлять в Telegram всегда (в т.ч. при успешной проверке), иначе только при ошибках/нарушениях. */
+  notifyAlways?: boolean;
   groupId?: string | null;
   sortOrder?: number;
 }
@@ -432,8 +464,8 @@ export async function createSchedule(input: ScheduleInsert): Promise<ScheduleRec
   const res = await p.query(
     `INSERT INTO schedules (
       name, mode, seed_url, urls, cron_expression, timezone, end_at, options,
-      forbidden_terms, forbidden_settings, telegram_chat_id, telegram_bot_token, enabled, group_id, sort_order
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      forbidden_terms, forbidden_settings, telegram_chat_id, telegram_bot_token, enabled, notify_always, group_id, sort_order
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     RETURNING *`,
     [
       input.name || '',
@@ -449,6 +481,7 @@ export async function createSchedule(input: ScheduleInsert): Promise<ScheduleRec
       input.telegramChatId ?? null,
       input.telegramBotToken ?? null,
       input.enabled !== false,
+      input.notifyAlways === true,
       input.groupId ?? null,
       input.sortOrder ?? 0,
     ]
@@ -478,6 +511,7 @@ export async function updateSchedule(id: string, input: Partial<ScheduleInsert>)
   if (input.telegramChatId !== undefined) { updates.push(`telegram_chat_id = $${idx++}`); values.push(input.telegramChatId); }
   if (input.telegramBotToken !== undefined) { updates.push(`telegram_bot_token = $${idx++}`); values.push(input.telegramBotToken); }
   if (input.enabled !== undefined) { updates.push(`enabled = $${idx++}`); values.push(input.enabled); }
+  if (input.notifyAlways !== undefined) { updates.push(`notify_always = $${idx++}`); values.push(input.notifyAlways); }
   if (input.groupId !== undefined) { updates.push(`group_id = $${idx++}`); values.push(input.groupId); }
   if (input.sortOrder !== undefined) { updates.push(`sort_order = $${idx++}`); values.push(input.sortOrder); }
   if (updates.length === 0) return existing;

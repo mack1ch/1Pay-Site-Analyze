@@ -4,6 +4,7 @@ import { FileSearchOutlined, HistoryOutlined, CalendarOutlined } from '@ant-desi
 import CheckPage from './CheckPage';
 import { HistoryPage } from './HistoryPage';
 import { SchedulesPage } from './SchedulesPage';
+import { ScheduleFormPage } from './ScheduleFormPage';
 
 const { Header, Content } = Layout;
 const { Title } = Typography;
@@ -11,7 +12,7 @@ const { Title } = Typography;
 function AppLayout() {
   const location = useLocation();
   const path = location.pathname;
-  const current = path === '/history' ? 'history' : path === '/schedules' ? 'schedules' : 'check';
+  const current = path === '/history' ? 'history' : path.startsWith('/schedules') ? 'schedules' : 'check';
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -64,6 +65,8 @@ export default function App() {
         <Route index element={<CheckPage />} />
         <Route path="history" element={<HistoryPage />} />
         <Route path="schedules" element={<SchedulesPage />} />
+        <Route path="schedules/new" element={<ScheduleFormPage />} />
+        <Route path="schedules/edit/:id" element={<ScheduleFormPage />} />
       </Route>
     </Routes>
   );

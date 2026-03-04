@@ -16,7 +16,7 @@ import {
 import type { ScheduleRecord } from './types.js';
 import { createJob, getJob } from './job-store.js';
 import { runJob, buildCrawlOptions } from './job-processor.js';
-import { sendTelegramAlert } from './telegram.js';
+import { sendTelegramAlert, sendTelegramScheduleSuccess } from './telegram.js';
 import type { JobOptions } from './types.js';
 
 const CHECK_INTERVAL_MS = 60_000;
@@ -76,12 +76,19 @@ async function runScheduleJob(
         const hasProblems =
           (job.progress.violations ?? 0) > 0 ||
           job.results.some((r) => r.blockedBySite || !r.ok);
-        if (hasProblems) {
-          await sendTelegramAlert(job, {
-            botToken: schedule.telegramBotToken,
-            chatId: schedule.telegramChatId,
-            baseUrl: process.env.BASE_URL,
-          });
+        const telegramOpts = {
+          botToken: schedule.telegramBotToken,
+          chatId: schedule.telegramChatId,
+          baseUrl: process.env.BASE_URL,
+        };
+        if (schedule.notifyAlways) {
+          if (hasProblems) {
+            await sendTelegramAlert(job, telegramOpts);
+          } else {
+            await sendTelegramScheduleSuccess(job, telegramOpts);
+          }
+        } else if (hasProblems) {
+          await sendTelegramAlert(job, telegramOpts);
         }
       }
       await onComplete?.();

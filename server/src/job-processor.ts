@@ -20,6 +20,10 @@ import type { ResultItem, JobOptions } from './types.js';
 import { config } from './config.js';
 
 const SCREENSHOT_STATIC_PREFIX = '/static/screenshots/';
+const SECOND_PASS_EXTRA_DELAY_MS = 6_000;
+const SECOND_PASS_NETWORK_IDLE_MS = 25_000;
+const SECOND_PASS_STABLE_MAX_MS = 40_000;
+const SECOND_PASS_SCROLL_PAUSE_MS = 2_500;
 
 async function withRetry<T>(
   fn: () => Promise<T>,
@@ -66,6 +70,11 @@ export async function runJob(
   const useBrowserFetch = opts.useBrowserFetch === true;
   const forbiddenOpts = opts.forbidden;
   const access = opts.access;
+  const browserFetchOpts = opts.browserFetch;
+  const twoPassForForbidden =
+    useBrowserFetch &&
+    (forbiddenOpts?.terms?.length ?? 0) > 0 &&
+    (browserFetchOpts?.twoPassForForbidden !== false);
 
   let requestIndex = 0;
   const fetchLimit = pLimit(concurrency);
@@ -124,10 +133,20 @@ export async function runJob(
     if (!fetched) {
       let res: Awaited<ReturnType<typeof fetchHtml>>;
       if (useBrowserFetch && screenshotPool) {
+        const browserOptions = {
+          timeoutMs: playwrightTimeout,
+          networkIdleTimeoutMs: browserFetchOpts?.networkIdleTimeoutMs,
+          extraDelayAfterLoadMs: browserFetchOpts?.extraDelayAfterLoadMs,
+          waitContentStable: browserFetchOpts?.waitContentStable,
+          contentStableSameForMs: browserFetchOpts?.contentStableSameForMs,
+          contentStableMaxWaitMs: browserFetchOpts?.contentStableMaxWaitMs,
+          scrollBeforeCapture: browserFetchOpts?.scrollBeforeCapture,
+          scrollPauseMs: browserFetchOpts?.scrollPauseMs,
+        };
         res = await fetchLimit(async () => {
           const page = await screenshotPool!.acquirePage();
           try {
-            return await fetchHtmlWithBrowser(page, url, { timeoutMs: playwrightTimeout });
+            return await fetchHtmlWithBrowser(page, url, browserOptions);
           } finally {
             await screenshotPool!.releasePage(page);
           }
@@ -195,12 +214,55 @@ export async function runJob(
       return null;
     }
 
-    const { title, text, truncated } = extractReadableText(fetched, finalUrl, maxTextChars);
+    let { title, text, truncated } = extractReadableText(fetched, finalUrl, maxTextChars);
+    let textForResult = text;
+
+    // Второй проход для проверки запрещённых слов: повторная загрузка с доп. задержкой и объединение текста
+    if (
+      twoPassForForbidden &&
+      screenshotPool &&
+      forbiddenOpts?.terms?.length &&
+      !signal?.aborted &&
+      !getJob(jobId)?.cancelled
+    ) {
+      const secondPassOptions = {
+        timeoutMs: playwrightTimeout,
+        networkIdleTimeoutMs: browserFetchOpts?.networkIdleTimeoutMs ?? SECOND_PASS_NETWORK_IDLE_MS,
+        extraDelayAfterLoadMs:
+          (browserFetchOpts?.extraDelayAfterLoadMs ?? 0) + SECOND_PASS_EXTRA_DELAY_MS,
+        waitContentStable: browserFetchOpts?.waitContentStable ?? true,
+        contentStableSameForMs: browserFetchOpts?.contentStableSameForMs,
+        contentStableMaxWaitMs: browserFetchOpts?.contentStableMaxWaitMs ?? SECOND_PASS_STABLE_MAX_MS,
+        scrollBeforeCapture: true,
+        scrollPauseMs: browserFetchOpts?.scrollPauseMs ?? SECOND_PASS_SCROLL_PAUSE_MS,
+      };
+      try {
+        const secondHtml = await fetchLimit(async () => {
+          const page = await screenshotPool!.acquirePage();
+          try {
+            const res2 = await fetchHtmlWithBrowser(page, finalUrl, secondPassOptions);
+            return res2.ok ? res2.html : null;
+          } finally {
+            await screenshotPool!.releasePage(page);
+          }
+        });
+        if (secondHtml && !signal?.aborted && !getJob(jobId)?.cancelled) {
+          const { text: text2 } = extractReadableText(secondHtml, finalUrl, maxTextChars);
+          if (text2) {
+            const merged = (text + '\n\n' + text2).trim();
+            textForResult = merged.length > maxTextChars ? merged.slice(0, maxTextChars) : merged;
+            truncated = merged.length > maxTextChars;
+          }
+        }
+      } catch {
+        // Второй проход не критичен — используем результат первого
+      }
+    }
 
     let forbiddenScan: Awaited<ReturnType<typeof scanForbidden>> | undefined;
-    if (forbiddenOpts?.terms?.length && text) {
+    if (forbiddenOpts?.terms?.length && textForResult) {
       forbiddenScan = scanForbidden({
-        text,
+        text: textForResult,
         terms: forbiddenOpts.terms,
         settings: forbiddenOpts.settings ?? {},
       });
@@ -238,8 +300,8 @@ export async function runJob(
       statusCode,
       finalUrl,
       title,
-      text,
-      textLength: text.length,
+      text: textForResult,
+      textLength: textForResult.length,
       truncated,
       screenshotUrl,
       sslValidFrom,

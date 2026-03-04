@@ -100,6 +100,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
         telegramChatId: body.telegramChatId ?? null,
         telegramBotToken: body.telegramBotToken ?? null,
         enabled: body.enabled !== false,
+        notifyAlways: body.notifyAlways === true,
         groupId: body.groupId ?? null,
         sortOrder: body.sortOrder ?? 0,
       });

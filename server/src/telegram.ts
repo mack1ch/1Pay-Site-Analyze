@@ -37,6 +37,75 @@ export async function sendTelegramAlert(
 
   const reportLink = baseUrl ? `${baseUrl.replace(/\/$/, '')}/?jobId=${job.jobId}` : '';
 
+  return sendTelegramProblemMessage(job, reportLink, violations, blocked, failed, botToken, chatId);
+}
+
+/**
+ * Отправка в Telegram сообщения об успешном завершении проверки (без нарушений).
+ */
+export async function sendTelegramScheduleSuccess(
+  job: JobRecord,
+  options: {
+    botToken?: string | null;
+    chatId?: string | null;
+    baseUrl?: string;
+  }
+): Promise<boolean> {
+  const botToken = options.botToken ?? process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = options.chatId ?? process.env.TELEGRAM_CHAT_ID;
+  const baseUrl = options.baseUrl ?? process.env.BASE_URL ?? '';
+
+  if (!botToken?.trim() || !chatId?.trim()) {
+    return false;
+  }
+
+  const reportLink = baseUrl ? `${baseUrl.replace(/\/$/, '')}/?jobId=${job.jobId}` : '';
+  const siteUrl = job.results[0]?.finalUrl || job.results[0]?.url || '';
+  let host = '';
+  try {
+    host = new URL(siteUrl).hostname;
+  } catch {
+    host = siteUrl || '—';
+  }
+
+  const processed = job.progress?.processed ?? job.results.length;
+  const text =
+    '✅ <b>Проверка завершена успешно</b>\n\n' +
+    '🌐 Сайт: ' + escapeHtml(host) + '\n' +
+    'Обработано страниц: ' + processed + '\n' +
+    (reportLink ? '\n📋 <a href="' + escapeHtml(reportLink) + '">Открыть отчёт</a>' : '');
+
+  try {
+    const res = await fetch(`${TELEGRAM_API}/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      }),
+    });
+    if (!res.ok) {
+      console.warn('[telegram] schedule success sendMessage failed:', res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[telegram] schedule success request failed:', (e as Error).message);
+    return false;
+  }
+}
+
+async function sendTelegramProblemMessage(
+  job: JobRecord,
+  reportLink: string,
+  violations: JobRecord['results'],
+  blocked: JobRecord['results'],
+  failed: JobRecord['results'],
+  botToken: string,
+  chatId: string
+): Promise<boolean> {
   const parts: string[] = [];
   parts.push('⚠️ <b>Проверка сайта: обнаружены проблемы</b>\n');
 

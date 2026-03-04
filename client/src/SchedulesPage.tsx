@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Card,
   Table,
@@ -26,12 +27,10 @@ import {
   TeamOutlined,
   CalendarOutlined,
 } from '@ant-design/icons';
-import type { Schedule, ScheduleGroup, ScheduleCreate, ScheduleGroupCreate, ScheduleRunLogEntry } from './api';
+import type { Schedule, ScheduleGroup, ScheduleGroupCreate, ScheduleRunLogEntry } from './api';
 import {
   getSchedules,
   getScheduleGroups,
-  createSchedule,
-  updateSchedule,
   deleteSchedule,
   createScheduleGroup,
   updateScheduleGroup,
@@ -238,16 +237,13 @@ function ScheduleLogBlock({
 }
 
 export function SchedulesPage() {
+  const navigate = useNavigate();
   const [groups, setGroups] = useState<ScheduleGroup[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  const [addToGroupId, setAddToGroupId] = useState<string | null>(null);
   const [groupForm] = Form.useForm();
-  const [scheduleForm] = Form.useForm();
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -296,91 +292,6 @@ export function SchedulesPage() {
       if ((e as { errorFields?: unknown[] }).errorFields) return;
       message.error((e as Error).message);
     }
-  };
-
-  const handleScheduleSubmit = async () => {
-    try {
-      const v = await scheduleForm.validateFields();
-      const groupId = addToGroupId || undefined;
-      const body: ScheduleCreate = {
-        name: v.name || '',
-        mode: v.mode,
-        seedUrls:
-          v.mode === 'crawl' && v.seedUrls
-            ? v.seedUrls
-                .trim()
-                .split(/\n/)
-                .map((s: string) => s.trim())
-                .filter((u: string) => /^https?:\/\//i.test(u))
-            : undefined,
-        urls:
-          v.mode === 'list' && v.urls
-            ? v.urls
-                .trim()
-                .split(/\n/)
-                .map((s: string) => s.trim())
-                .filter(Boolean)
-            : [],
-        cronExpression: groupId ? undefined : (v.cronExpression || '').trim(),
-        timezone: v.timezone || 'Europe/Moscow',
-        endAt: v.endAt ? new Date(v.endAt).getTime() : null,
-        forbiddenTerms: v.forbiddenTerms
-          ? v.forbiddenTerms
-              .trim()
-              .split(/\n/)
-              .map((s: string) => s.trim())
-              .filter(Boolean)
-          : [],
-        telegramChatId: v.telegramChatId || null,
-        telegramBotToken: v.telegramBotToken || null,
-        enabled: v.enabled !== false,
-        groupId: groupId || null,
-        sortOrder: v.sortOrder ?? 0,
-      };
-      if (editingId) {
-        await updateSchedule(editingId, body);
-        message.success('Расписание обновлено');
-      } else {
-        await createSchedule(body);
-        message.success('Расписание добавлено');
-      }
-      setScheduleModalOpen(false);
-      setEditingId(null);
-      setAddToGroupId(null);
-      scheduleForm.resetFields();
-      load();
-    } catch (e) {
-      if ((e as { errorFields?: unknown[] }).errorFields) return;
-      message.error((e as Error).message);
-    }
-  };
-
-  const openEditSchedule = (s: Schedule) => {
-    setEditingId(s.id);
-    setAddToGroupId(s.groupId ?? null);
-    scheduleForm.setFieldsValue({
-      name: s.name,
-      mode: s.mode,
-      seedUrls: Array.isArray(s.seedUrls) ? s.seedUrls.join('\n') : s.seedUrl || '',
-      urls: Array.isArray(s.urls) ? s.urls.join('\n') : '',
-      cronExpression: s.cronExpression || '',
-      timezone: s.timezone || 'Europe/Moscow',
-      endAt: s.endAt ? new Date(s.endAt).toISOString().slice(0, 16) : undefined,
-      forbiddenTerms: Array.isArray(s.forbiddenTerms) ? s.forbiddenTerms.join('\n') : '',
-      telegramChatId: s.telegramChatId || '',
-      telegramBotToken: s.telegramBotToken || '',
-      enabled: s.enabled,
-      sortOrder: s.sortOrder ?? 0,
-    });
-    setScheduleModalOpen(true);
-  };
-
-  const openAddScheduleToGroup = (groupId: string) => {
-    setEditingId(null);
-    setAddToGroupId(groupId);
-    scheduleForm.resetFields();
-    scheduleForm.setFieldsValue({ mode: 'list', timezone: 'Europe/Moscow', enabled: true, sortOrder: 0 });
-    setScheduleModalOpen(true);
   };
 
   const openEditGroup = (g: ScheduleGroup) => {
@@ -456,7 +367,7 @@ export function SchedulesPage() {
       width: 120,
       render: (_: unknown, r: Schedule) => (
         <Space>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditSchedule(r)}>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/schedules/edit/${r.id}`)}>
             Изменить
           </Button>
           <Popconfirm title="Удалить?" onConfirm={() => handleDeleteSchedule(r.id)}>
@@ -510,7 +421,7 @@ export function SchedulesPage() {
                     type="link"
                     size="small"
                     icon={<PlusOutlined />}
-                    onClick={() => openAddScheduleToGroup(g.id)}
+                    onClick={() => navigate(`/schedules/new?groupId=${g.id}`)}
                   >
                     Добавить список в группу
                   </Button>
@@ -553,7 +464,7 @@ export function SchedulesPage() {
                         key: 'actions',
                         width: 100,
                         render: (_: unknown, r: Schedule) => (
-                          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditSchedule(r)}>
+                          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/schedules/edit/${r.id}`)}>
                             Изменить
                           </Button>
                         ),
@@ -582,17 +493,7 @@ export function SchedulesPage() {
           </Space>
         }
         extra={
-          <Button
-            type="default"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setAddToGroupId(null);
-              setEditingId(null);
-              scheduleForm.resetFields();
-              scheduleForm.setFieldsValue({ mode: 'list', timezone: 'Europe/Moscow', enabled: true, cronExpression: '0 9 * * *' });
-              setScheduleModalOpen(true);
-            }}
-          >
+          <Button type="default" icon={<PlusOutlined />} onClick={() => navigate('/schedules/new')}>
             Добавить по cron
           </Button>
         }
@@ -659,98 +560,6 @@ export function SchedulesPage() {
           </Form.Item>
           <Form.Item name="endAt" label="Действует до (необязательно)">
             <Input type="datetime-local" />
-          </Form.Item>
-          <Form.Item name="enabled" label="Включено" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={addToGroupId ? 'Добавить в группу' : editingId ? 'Изменить расписание' : 'Новое расписание (cron)'}
-        open={scheduleModalOpen}
-        onOk={handleScheduleSubmit}
-        onCancel={() => {
-          setScheduleModalOpen(false);
-          setEditingId(null);
-          setAddToGroupId(null);
-          scheduleForm.resetFields();
-        }}
-        width={560}
-        okText={editingId || addToGroupId ? 'Сохранить' : 'Создать'}
-      >
-        <Form
-          form={scheduleForm}
-          layout="vertical"
-          initialValues={{ mode: 'list', timezone: 'Europe/Moscow', enabled: true, cronExpression: '0 9 * * *' }}
-        >
-          <Form.Item name="name" label="Название">
-            <Input placeholder="Например: Список сайтов X" />
-          </Form.Item>
-          <Form.Item name="mode" label="Режим" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { value: 'crawl', label: 'Обход сайта (crawl)' },
-                { value: 'list', label: 'Список URL' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.mode !== curr.mode}>
-            {({ getFieldValue }) =>
-              getFieldValue('mode') === 'crawl' ? (
-                <Form.Item
-                  name="seedUrls"
-                  label="Стартовые URL (по одному на строку)"
-                  rules={[{ required: true, message: 'Укажите хотя бы один URL' }]}
-                >
-                  <Input.TextArea rows={4} placeholder="https://example.com" />
-                </Form.Item>
-              ) : (
-                <Form.Item
-                  name="urls"
-                  label="URL (по одному на строку)"
-                  rules={[{ required: true, message: 'Укажите URL' }]}
-                >
-                  <Input.TextArea rows={3} placeholder="https://example.com/page1" />
-                </Form.Item>
-              )
-            }
-          </Form.Item>
-          {!addToGroupId && (
-            <Form.Item
-              name="cronExpression"
-              label="Cron"
-              rules={[{ required: true, message: 'Укажите выражение cron' }]}
-              extra="Примеры: 0 9 * * * — каждый день в 09:00; */30 * * * * — каждые 30 мин"
-            >
-              <Input placeholder="0 9 * * *" />
-            </Form.Item>
-          )}
-          {addToGroupId && (
-            <Form.Item name="sortOrder" label="Порядок в группе" initialValue={0}>
-              <InputNumber min={0} style={{ width: 120 }} />
-            </Form.Item>
-          )}
-          <Form.Item name="timezone" label="Часовой пояс">
-            <Select
-              options={[
-                { value: 'Europe/Moscow', label: 'Москва' },
-                { value: 'UTC', label: 'UTC' },
-                { value: 'Europe/Kiev', label: 'Киев' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="endAt" label="Действует до (необязательно)">
-            <Input type="datetime-local" />
-          </Form.Item>
-          <Form.Item name="forbiddenTerms" label="Запрещённые слова (по одному на строку)">
-            <Input.TextArea rows={2} placeholder="слово1&#10;слово2" />
-          </Form.Item>
-          <Form.Item name="telegramChatId" label="Telegram Chat ID">
-            <Input placeholder="если пусто — из настроек сервера" />
-          </Form.Item>
-          <Form.Item name="telegramBotToken" label="Telegram Bot Token">
-            <Input.Password placeholder="если пусто — из настроек сервера" />
           </Form.Item>
           <Form.Item name="enabled" label="Включено" valuePropName="checked">
             <Switch />

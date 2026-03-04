@@ -205,6 +205,19 @@ export interface AccessPresetsResponse {
   delay: AccessPresetOption[];
 }
 
+/** Опции загрузки через браузер для полного контента (медленные сайты, контент с бэкенда). */
+export interface BrowserFetchOptions {
+  networkIdleTimeoutMs?: number;
+  extraDelayAfterLoadMs?: number;
+  waitContentStable?: boolean;
+  contentStableSameForMs?: number;
+  contentStableMaxWaitMs?: number;
+  scrollBeforeCapture?: boolean;
+  scrollPauseMs?: number;
+  /** Второй проход с усиленным ожиданием для проверки запрещённых слов (по умолчанию true при useBrowserFetch + запрещённые термины). */
+  twoPassForForbidden?: boolean;
+}
+
 export interface JobOptions {
   concurrencyFetch?: number;
   concurrencyScreenshots?: number;
@@ -212,6 +225,8 @@ export interface JobOptions {
   maxResponseBytes?: number;
   /** Загружать страницы через браузер (для SPA / JS-контента, напр. plati.market). */
   useBrowserFetch?: boolean;
+  /** Опции браузерной загрузки: ожидание контента с бэкенда, прокрутка, два прохода. */
+  browserFetch?: BrowserFetchOptions;
   screenshot?: { enabled?: boolean; fullPage?: boolean };
   crawl?: CrawlOptionsInput;
   forbidden?: {
@@ -314,6 +329,17 @@ export async function getHistoryReports(domain: string): Promise<{ reports: Stor
   return res.json();
 }
 
+/** Отчёт в списке последних проверок (с доменом). */
+export interface RecentReportMeta extends StoredReportMeta {
+  domain: string | null;
+}
+
+export async function getRecentReports(limit = 100): Promise<{ reports: RecentReportMeta[] }> {
+  const res = await fetch(`${API_BASE}/history/reports?limit=${limit}`);
+  if (!res.ok) throw new Error('Не удалось загрузить последние проверки');
+  return res.json();
+}
+
 /** Расписание автоматической проверки */
 export interface Schedule {
   id: string;
@@ -332,6 +358,8 @@ export interface Schedule {
   telegramChatId: string | null;
   telegramBotToken: string | null;
   enabled: boolean;
+  /** Уведомлять в Telegram всегда (в т.ч. при успехе), иначе только при ошибках. */
+  notifyAlways?: boolean;
   createdAt: number;
   updatedAt: number;
   lastRunAt: number | null;
@@ -384,6 +412,8 @@ export interface ScheduleCreate {
   telegramChatId?: string | null;
   telegramBotToken?: string | null;
   enabled?: boolean;
+  /** Уведомлять в Telegram всегда (в т.ч. при успехе), иначе только при ошибках. */
+  notifyAlways?: boolean;
   groupId?: string | null;
   sortOrder?: number;
 }

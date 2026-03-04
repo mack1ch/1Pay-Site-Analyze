@@ -194,6 +194,26 @@ export interface AccessOptions {
   stealth?: boolean;
 }
 
+/** Опции загрузки через браузер для полного контента (медленные сайты, контент с бэкенда). */
+export interface BrowserFetchOptions {
+  /** Таймаут ожидания networkidle (мс). */
+  networkIdleTimeoutMs?: number;
+  /** Доп. задержка после загрузки (мс). */
+  extraDelayAfterLoadMs?: number;
+  /** Ждать стабилизации контента (длина body не меняется). */
+  waitContentStable?: boolean;
+  /** Время неизменности текста для «стабильно» (мс). */
+  contentStableSameForMs?: number;
+  /** Макс. ожидание стабилизации (мс). */
+  contentStableMaxWaitMs?: number;
+  /** Прокрутить страницу перед снятием HTML (lazy-load). */
+  scrollBeforeCapture?: boolean;
+  /** Пауза после прокрутки (мс). */
+  scrollPauseMs?: number;
+  /** Второй проход с усиленным ожиданием и объединением текста для проверки запрещённых слов. */
+  twoPassForForbidden?: boolean;
+}
+
 export interface JobOptions {
   concurrencyFetch?: number;
   concurrencyScreenshots?: number;
@@ -201,6 +221,8 @@ export interface JobOptions {
   maxResponseBytes?: number;
   /** Загружать страницы через браузер (Playwright) для сайтов с JS-контентом (SPA). */
   useBrowserFetch?: boolean;
+  /** Опции браузерной загрузки: ожидание контента с бэкенда, прокрутка, стабилизация. */
+  browserFetch?: BrowserFetchOptions;
   screenshot?: { enabled?: boolean; fullPage?: boolean };
   crawl?: CrawlOptionsInput;
   forbidden?: ForbiddenOptions;
@@ -327,6 +349,8 @@ export interface ScheduleRecord {
   lastJobId: string | null;
   /** Текущая выполняющаяся проверка (заполняется при старте, очищается при завершении). */
   runningJobId: string | null;
+  /** Уведомлять в Telegram всегда (в т.ч. при успехе), иначе только при ошибках/нарушениях. */
+  notifyAlways: boolean;
   /** Группа: при задании расписание запускается по интервалу группы. */
   groupId: string | null;
   sortOrder: number;
