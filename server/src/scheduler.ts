@@ -58,6 +58,7 @@ async function runScheduleJob(
   createJob(jobId, schedule.mode, total, schedule.id);
   await updateScheduleRunningJob(schedule.id, jobId);
   await insertScheduleRunLog(schedule.id, jobId, 'started');
+  console.log('[scheduler] Проверка запущена: job=%s, расписание=%s', jobId, schedule.name || schedule.id);
   saveReportStartedToHistory(jobId, schedule.mode, now, urls[0]).catch((err) =>
     console.warn('[scheduler] saveReportStarted failed:', err)
   );
@@ -119,23 +120,30 @@ async function continueGroupRun(groupId: string): Promise<void> {
   await runScheduleJob(nextSchedule, now, () => continueGroupRun(groupId));
 }
 
-export function startScheduler(): void {
-  setInterval(async () => {
+async function runSchedulerTick(): Promise<void> {
+  try {
     const now = Date.now();
 
     // Группы: интервал в минутах
     const groups = await getScheduleGroups(true);
+    const cronSchedules = await getSchedules(true);
+    const cronOnly = cronSchedules.filter((s) => !s.groupId);
+
     for (const group of groups) {
       if (runningGroups.has(group.id)) continue;
       if (group.runningJobId != null) continue; // уже идёт прогон по расписанию группы
-      const nextRun = getNextRunFromInterval(group.intervalMinutes, group.lastRunAt);
+      const nextRun = getNextRunFromInterval(group.intervalMinutes, group.lastRunAt, now);
       if (nextRun > now) continue;
       if (group.endAt != null && now >= group.endAt) continue;
 
       const schedules = await getSchedulesByGroupId(group.id);
       const enabledSchedules = schedules.filter((s) => s.enabled);
-      if (enabledSchedules.length === 0) continue;
+      if (enabledSchedules.length === 0) {
+        console.warn('[scheduler] Группа "%s" (%s): нет включённых расписаний', group.name || 'Без названия', group.id);
+        continue;
+      }
 
+      console.log('[scheduler] Запуск группы "%s" (%s), расписаний: %d', group.name || 'Без названия', group.id, enabledSchedules.length);
       runningGroups.add(group.id);
       const first = enabledSchedules[0];
       runningSchedules.add(first.id);
@@ -143,8 +151,7 @@ export function startScheduler(): void {
     }
 
     // Отдельные расписания по cron (без группы)
-    const schedules = await getSchedules(true);
-    for (const schedule of schedules) {
+    for (const schedule of cronOnly) {
       if (schedule.groupId != null) continue; // в группе — запускается через группу
       if (runningSchedules.has(schedule.id)) continue;
       const afterDate = schedule.lastRunAt ? new Date(schedule.lastRunAt) : new Date(now - 1000);
@@ -155,8 +162,20 @@ export function startScheduler(): void {
       const urls = getUrls(schedule);
       if (urls.length === 0) continue;
 
+      console.log('[scheduler] Запуск расписания "%s" (%s)', schedule.name || 'Без названия', schedule.id);
       runningSchedules.add(schedule.id);
       await runScheduleJob(schedule, now);
     }
-  }, CHECK_INTERVAL_MS);
+  } catch (err) {
+    console.error('[scheduler] Ошибка в тике:', err);
+  }
+}
+
+export function startScheduler(): void {
+  // Первый запуск через 3 сек после старта (чтобы БД была готова)
+  setTimeout(() => {
+    console.log('[scheduler] Первый запуск проверки расписаний');
+    runSchedulerTick();
+  }, 3000);
+  setInterval(runSchedulerTick, CHECK_INTERVAL_MS);
 }

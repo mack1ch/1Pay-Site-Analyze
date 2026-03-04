@@ -571,15 +571,15 @@ export function getNextRunFromCron(cronExpression: string, timezone: string, aft
   }
 }
 
-/** Следующий запуск по интервалу в минутах (в миллисекундах). */
+/** Следующий запуск по интервалу в минутах (в миллисекундах). currentTime — для согласованности с тиком планировщика. */
 export function getNextRunFromInterval(
   intervalMinutes: number,
-  lastRunAt: number | null
+  lastRunAt: number | null,
+  currentTime: number = Date.now()
 ): number {
-  const now = Date.now();
-  if (lastRunAt == null) return now;
+  if (lastRunAt == null) return currentTime;
   const next = lastRunAt + intervalMinutes * 60 * 1000;
-  return next <= now ? now : next;
+  return next <= currentTime ? currentTime : next;
 }
 
 // --- Schedule groups ---

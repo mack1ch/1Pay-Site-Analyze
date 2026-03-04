@@ -190,6 +190,7 @@ function ScheduleLogBlock({
   runningJobId?: string | null;
 }) {
   const running = !!runningJobId;
+  const lastStarted = runLog?.filter((e) => e.event === 'started').sort((a, b) => b.createdAt - a.createdAt)[0];
   return (
     <Card type="inner" size="small" title="Лог и статус" style={{ marginTop: 12 }}>
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -197,6 +198,12 @@ function ScheduleLogBlock({
           <div>
             <Typography.Text type="secondary">Следующий запуск: </Typography.Text>
             <Typography.Text strong>{formatDate(nextRunAt)}</Typography.Text>
+          </div>
+        )}
+        {lastStarted && (
+          <div>
+            <Typography.Text type="secondary">Запущено в: </Typography.Text>
+            <Typography.Text>{formatDate(lastStarted.createdAt)}</Typography.Text>
           </div>
         )}
         {runLog && runLog.length > 0 && (
