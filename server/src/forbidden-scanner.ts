@@ -256,6 +256,23 @@ export function scanForbidden(input: ScanInput): ForbiddenScanResult {
       }
     }
 
+    // Однословный термин не найден по токенам (напр. «Казино» внутри «1xGamesКазино») — ищем как подстроку
+    if (count === 0 && term.length >= minWordLength) {
+      const normText = caseSensitive ? text : text.toLowerCase();
+      const normT = caseSensitive ? term : term.toLowerCase();
+      let idx = normText.indexOf(normT);
+      let subCount = 0;
+      while (idx >= 0 && subCount < maxMatchesPerTerm) {
+        subCount++;
+        idx = normText.indexOf(normT, idx + 1);
+      }
+      if (subCount > 0) {
+        count = subCount;
+        matchType = 'exact_substring';
+        snippets = extractSnippets(text, term, caseSensitive, MAX_SNIPPETS);
+      }
+    }
+
     if (count > 0) {
       matchedTerms.push({
         term,
