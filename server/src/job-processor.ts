@@ -17,6 +17,7 @@ import {
 import { saveReportToHistory } from './db.js';
 import { delayBeforeRequest } from './access-profile.js';
 import type { ResultItem, JobOptions } from './types.js';
+import type { Page } from 'playwright';
 import { config } from './config.js';
 
 const SCREENSHOT_STATIC_PREFIX = '/static/screenshots/';
@@ -129,7 +130,10 @@ export async function runJob(
     let fetched = html;
     let statusCode: number | undefined;
     let finalUrl = url;
+    /** При useBrowserFetch + скриншот: страница удерживается для снимка после загрузки контента (без повторного goto). */
+    let heldPage: Page | null = null;
 
+    try {
     if (!fetched) {
       let res: Awaited<ReturnType<typeof fetchHtml>>;
       if (useBrowserFetch && screenshotPool) {
@@ -143,14 +147,20 @@ export async function runJob(
           scrollBeforeCapture: browserFetchOpts?.scrollBeforeCapture,
           scrollPauseMs: browserFetchOpts?.scrollPauseMs,
         };
-        res = await fetchLimit(async () => {
-          const page = await screenshotPool!.acquirePage();
-          try {
-            return await fetchHtmlWithBrowser(page, url, browserOptions);
-          } finally {
-            await screenshotPool!.releasePage(page);
-          }
-        });
+        const useSamePageForScreenshot = screenshotEnabled;
+        if (useSamePageForScreenshot) {
+          heldPage = await screenshotPool!.acquirePage();
+          res = await fetchHtmlWithBrowser(heldPage, url, browserOptions);
+        } else {
+          res = await fetchLimit(async () => {
+            const page = await screenshotPool!.acquirePage();
+            try {
+              return await fetchHtmlWithBrowser(page, url, browserOptions);
+            } finally {
+              await screenshotPool!.releasePage(page);
+            }
+          });
+        }
       } else {
         res = await fetchLimit(() =>
           withRetry(
@@ -220,7 +230,7 @@ export async function runJob(
     // Второй проход для проверки запрещённых слов: повторная загрузка с доп. задержкой и объединение текста
     if (
       twoPassForForbidden &&
-      screenshotPool &&
+      (heldPage || screenshotPool) &&
       forbiddenOpts?.terms?.length &&
       !signal?.aborted &&
       !getJob(jobId)?.cancelled
@@ -237,15 +247,21 @@ export async function runJob(
         scrollPauseMs: browserFetchOpts?.scrollPauseMs ?? SECOND_PASS_SCROLL_PAUSE_MS,
       };
       try {
-        const secondHtml = await fetchLimit(async () => {
-          const page = await screenshotPool!.acquirePage();
-          try {
-            const res2 = await fetchHtmlWithBrowser(page, finalUrl, secondPassOptions);
-            return res2.ok ? res2.html : null;
-          } finally {
-            await screenshotPool!.releasePage(page);
-          }
-        });
+        let secondHtml: string | null = null;
+        if (heldPage) {
+          const res2 = await fetchHtmlWithBrowser(heldPage, finalUrl, secondPassOptions);
+          secondHtml = res2.ok ? res2.html ?? null : null;
+        } else {
+          secondHtml = await fetchLimit(async () => {
+            const page = await screenshotPool!.acquirePage();
+            try {
+              const res2 = await fetchHtmlWithBrowser(page, finalUrl, secondPassOptions);
+              return res2.ok ? res2.html ?? null : null;
+            } finally {
+              await screenshotPool!.releasePage(page);
+            }
+          });
+        }
         if (secondHtml && !signal?.aborted && !getJob(jobId)?.cancelled) {
           const { text: text2 } = extractReadableText(secondHtml, finalUrl, maxTextChars);
           if (text2) {
@@ -287,10 +303,24 @@ export async function runJob(
           forbiddenScan?.hasMatches ?
             forbiddenScan.matchedTerms.map((m) => ({ term: m.term }))
           : undefined;
-        screenshotUrl = await takeScreenshotSafe(url, finalUrl, {
-          fullPage: fullPageScreenshot,
-          highlightTerms,
-        });
+        if (heldPage) {
+          const result = await takeScreenshot(heldPage, finalUrl, {
+            fullPage: fullPageScreenshot,
+            highlightTerms,
+            viewport: screenshotPool!.viewport,
+            pageAlreadyLoaded: true,
+          });
+          if (!('error' in result)) {
+            screenshotUrl = SCREENSHOT_STATIC_PREFIX + result.filename;
+          } else {
+            console.warn(`[screenshot] failed for ${finalUrl}: ${result.error}`);
+          }
+        } else {
+          screenshotUrl = await takeScreenshotSafe(url, finalUrl, {
+            fullPage: fullPageScreenshot,
+            highlightTerms,
+          });
+        }
       }
     }
 
@@ -311,6 +341,11 @@ export async function runJob(
     incrementJobProgress(jobId, 1, 0);
 
     return { html: fetched };
+    } finally {
+      if (heldPage && screenshotPool) {
+        await screenshotPool.releasePage(heldPage);
+      }
+    }
   };
 
   if (screenshotEnabled || useBrowserFetch) {

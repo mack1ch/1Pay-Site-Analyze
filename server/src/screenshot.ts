@@ -226,6 +226,8 @@ export interface TakeScreenshotOptions {
 export interface TakeScreenshotOptionsWithViewport extends TakeScreenshotOptions {
   /** Размер вьюпорта (если задан в access при создании пула). */
   viewport?: { width: number; height: number };
+  /** Страница уже загружена на finalUrl (после fetchHtmlWithBrowser) — не делать goto, сразу снимать. */
+  pageAlreadyLoaded?: boolean;
 }
 
 export async function takeScreenshot(
@@ -237,13 +239,16 @@ export async function takeScreenshot(
   const fullPage = options?.fullPage ?? config.playwright.fullPageScreenshot;
   const highlightTerms = options?.highlightTerms ?? [];
   const viewport = options?.viewport ?? config.playwright.viewport;
+  const pageAlreadyLoaded = options?.pageAlreadyLoaded === true;
   const { width: viewportWidth, height: viewportHeight } = viewport;
 
   try {
-    await page.goto(finalUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: config.playwright.navigationTimeoutMs,
-    });
+    if (!pageAlreadyLoaded) {
+      await page.goto(finalUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: config.playwright.navigationTimeoutMs,
+      });
+    }
 
     let highlightRects: HighlightRect[] = [];
     if (highlightTerms.length > 0) {
