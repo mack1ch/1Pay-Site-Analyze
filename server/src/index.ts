@@ -1,18 +1,26 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { config as loadEnv } from 'dotenv';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Корень проекта (родитель папки server) — здесь лежит .env
+const projectRoot = path.resolve(__dirname, '..', '..');
+loadEnv({ path: path.join(projectRoot, '.env') });
+
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync } from 'fs';
 import jobsRoutes from './routes/jobs.js';
 import historyRoutes from './routes/history.js';
 import scheduleRoutes from './routes/schedules.js';
 import scheduleGroupRoutes from './routes/schedule-groups.js';
 import presetsRoutes from './routes/presets.js';
+import authRoutes from './routes/auth.js';
 import { initDb } from './db.js';
 import { startScheduler } from './scheduler.js';
+import { isPinProtectionEnabled, verifySignedCookie } from './auth.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS_DIR = path.join(__dirname, '..', 'storage', 'screenshots');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
@@ -23,10 +31,24 @@ async function main() {
 
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: true, credentials: true });
   app.get('/api/health', async (_request, reply) => {
     return reply.send({ ok: true });
   });
+
+  // Защита по пин-коду: все /api/* кроме health и auth требуют валидной cookie
+  app.addHook('preHandler', async (request, reply) => {
+    const url = request.url.split('?')[0] ?? '';
+    if (!url.startsWith('/api/') || url === '/api/health' || url.startsWith('/api/auth/')) {
+      return;
+    }
+    if (!isPinProtectionEnabled()) return;
+    const cookieHeader = request.headers.cookie;
+    if (verifySignedCookie(cookieHeader)) return;
+    return reply.code(401).send({ error: 'Требуется авторизация по пин-коду' });
+  });
+
+  await app.register(authRoutes);
   await app.register(fastifyStatic, {
     root: SCREENSHOTS_DIR,
     prefix: '/static/screenshots/',

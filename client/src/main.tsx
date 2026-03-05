@@ -5,6 +5,7 @@ import { ConfigProvider } from 'antd';
 import ruRU from 'antd/locale/ru_RU';
 import { theme } from 'antd';
 import App from './App';
+import AuthGuard from './AuthGuard';
 import './index.css';
 
 const darkTheme = {
@@ -19,7 +20,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ConfigProvider locale={ruRU} theme={darkTheme}>
       <BrowserRouter>
-        <App />
+        <AuthGuard>
+          <App />
+        </AuthGuard>
       </BrowserRouter>
     </ConfigProvider>
   </React.StrictMode>

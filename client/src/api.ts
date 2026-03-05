@@ -1,5 +1,7 @@
 const API_BASE = '/api';
 
+const defaultFetchOptions: RequestInit = { credentials: 'include' };
+
 export type ForbiddenMatchMode =
   | 'exact_substring'
   | 'word'
@@ -259,6 +261,7 @@ export async function createJob(body: {
   options?: JobOptions;
 }): Promise<{ jobId: string }> {
   const res = await fetch(`${API_BASE}/jobs`, {
+    ...defaultFetchOptions,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -271,13 +274,13 @@ export async function createJob(body: {
 }
 
 export async function getJob(jobId: string): Promise<JobResponse> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+  const res = await fetch(`${API_BASE}/jobs/${jobId}`, defaultFetchOptions);
   if (!res.ok) throw new Error('Job not found');
   return res.json();
 }
 
 export async function getAccessPresets(): Promise<AccessPresetsResponse> {
-  const res = await fetch(`${API_BASE}/access-presets`);
+  const res = await fetch(`${API_BASE}/access-presets`, defaultFetchOptions);
   if (!res.ok) throw new Error('Не удалось загрузить пресеты');
   return res.json();
 }
@@ -291,13 +294,13 @@ export async function getResults(
   if (cursor != null) params.set('cursor', String(cursor));
   if (limit != null) params.set('limit', String(limit));
   const q = params.toString();
-  const res = await fetch(`${API_BASE}/jobs/${jobId}/results${q ? `?${q}` : ''}`);
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/results${q ? `?${q}` : ''}`, defaultFetchOptions);
   if (!res.ok) throw new Error('Failed to load results');
   return res.json();
 }
 
 export async function cancelJob(jobId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { ...defaultFetchOptions, method: 'POST' });
   if (!res.ok) throw new Error('Failed to cancel');
 }
 
@@ -318,13 +321,13 @@ export interface StoredReportMeta {
 }
 
 export async function getHistoryDomains(): Promise<{ domains: DomainHistoryItem[] }> {
-  const res = await fetch(`${API_BASE}/history/domains`);
+  const res = await fetch(`${API_BASE}/history/domains`, defaultFetchOptions);
   if (!res.ok) throw new Error('Не удалось загрузить историю');
   return res.json();
 }
 
 export async function getHistoryReports(domain: string): Promise<{ reports: StoredReportMeta[] }> {
-  const res = await fetch(`${API_BASE}/history/domains/${encodeURIComponent(domain)}/reports`);
+  const res = await fetch(`${API_BASE}/history/domains/${encodeURIComponent(domain)}/reports`, defaultFetchOptions);
   if (!res.ok) throw new Error('Не удалось загрузить отчёты');
   return res.json();
 }
@@ -335,7 +338,7 @@ export interface RecentReportMeta extends StoredReportMeta {
 }
 
 export async function getRecentReports(limit = 100): Promise<{ reports: RecentReportMeta[] }> {
-  const res = await fetch(`${API_BASE}/history/reports?limit=${limit}`);
+  const res = await fetch(`${API_BASE}/history/reports?limit=${limit}`, defaultFetchOptions);
   if (!res.ok) throw new Error('Не удалось загрузить последние проверки');
   return res.json();
 }
@@ -427,19 +430,20 @@ export interface ScheduleGroupCreate {
 }
 
 export async function getSchedules(): Promise<{ schedules: Schedule[] }> {
-  const res = await fetch(`${API_BASE}/schedules`);
+  const res = await fetch(`${API_BASE}/schedules`, defaultFetchOptions);
   if (!res.ok) throw new Error('Не удалось загрузить расписания');
   return res.json();
 }
 
 export async function getSchedule(id: string): Promise<Schedule> {
-  const res = await fetch(`${API_BASE}/schedules/${id}`);
+  const res = await fetch(`${API_BASE}/schedules/${id}`, defaultFetchOptions);
   if (!res.ok) throw new Error('Расписание не найдено');
   return res.json();
 }
 
 export async function createSchedule(body: ScheduleCreate): Promise<Schedule> {
   const res = await fetch(`${API_BASE}/schedules`, {
+    ...defaultFetchOptions,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -453,6 +457,7 @@ export async function createSchedule(body: ScheduleCreate): Promise<Schedule> {
 
 export async function updateSchedule(id: string, body: Partial<ScheduleCreate>): Promise<Schedule> {
   const res = await fetch(`${API_BASE}/schedules/${id}`, {
+    ...defaultFetchOptions,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -465,24 +470,25 @@ export async function updateSchedule(id: string, body: Partial<ScheduleCreate>):
 }
 
 export async function deleteSchedule(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/schedules/${id}`, { method: 'DELETE' });
+  const res = await fetch(`${API_BASE}/schedules/${id}`, { ...defaultFetchOptions, method: 'DELETE' });
   if (!res.ok) throw new Error('Не удалось удалить');
 }
 
 export async function getScheduleGroups(): Promise<{ groups: ScheduleGroup[] }> {
-  const res = await fetch(`${API_BASE}/schedule-groups`);
+  const res = await fetch(`${API_BASE}/schedule-groups`, defaultFetchOptions);
   if (!res.ok) throw new Error('Не удалось загрузить группы расписаний');
   return res.json();
 }
 
 export async function getScheduleGroup(id: string): Promise<ScheduleGroup> {
-  const res = await fetch(`${API_BASE}/schedule-groups/${id}`);
+  const res = await fetch(`${API_BASE}/schedule-groups/${id}`, defaultFetchOptions);
   if (!res.ok) throw new Error('Группа не найдена');
   return res.json();
 }
 
 export async function createScheduleGroup(body: ScheduleGroupCreate): Promise<ScheduleGroup> {
   const res = await fetch(`${API_BASE}/schedule-groups`, {
+    ...defaultFetchOptions,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -496,6 +502,7 @@ export async function createScheduleGroup(body: ScheduleGroupCreate): Promise<Sc
 
 export async function updateScheduleGroup(id: string, body: Partial<ScheduleGroupCreate>): Promise<ScheduleGroup> {
   const res = await fetch(`${API_BASE}/schedule-groups/${id}`, {
+    ...defaultFetchOptions,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -508,8 +515,48 @@ export async function updateScheduleGroup(id: string, body: Partial<ScheduleGrou
 }
 
 export async function deleteScheduleGroup(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/schedule-groups/${id}`, { method: 'DELETE' });
+  const res = await fetch(`${API_BASE}/schedule-groups/${id}`, { ...defaultFetchOptions, method: 'DELETE' });
   if (!res.ok) throw new Error('Не удалось удалить группу');
+}
+
+// --- Авторизация по пин-коду ---
+
+export interface AuthStatusResponse {
+  ok: boolean;
+  error?: string;
+}
+
+export async function getAuthStatus(): Promise<AuthStatusResponse> {
+  const res = await fetch(`${API_BASE}/auth/status`, defaultFetchOptions);
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) return { ok: true, ...data };
+  return { ok: false, error: (data as { error?: string }).error };
+}
+
+export interface VerifyPinResponse {
+  ok?: boolean;
+  error?: string;
+  remainingAttempts?: number;
+  blocked?: boolean;
+  blockedUntil?: number;
+}
+
+export async function verifyPin(pin: string): Promise<VerifyPinResponse> {
+  const res = await fetch(`${API_BASE}/auth/verify`, {
+    ...defaultFetchOptions,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) return { ok: true, ...data };
+  return {
+    ok: false,
+    error: (data as { error?: string }).error,
+    remainingAttempts: (data as { remainingAttempts?: number }).remainingAttempts,
+    blocked: (data as { blocked?: boolean }).blocked,
+    blockedUntil: (data as { blockedUntil?: number }).blockedUntil,
+  };
 }
 
 export function screenshotFullUrl(screenshotUrl: string): string {
